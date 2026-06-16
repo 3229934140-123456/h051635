@@ -3,6 +3,7 @@ const config = require('./config');
 const clients = require('./clients');
 const auth = require('./auth');
 const tokenService = require('./tokenService');
+const grants = require('./grants');
 
 const router = express.Router();
 
@@ -90,6 +91,12 @@ function handleAuthorizationCode(req, res, client) {
   const { codeData } = validation;
   const scopes = clients.parseScope(codeData.scope);
 
+  grants.recordGrant({
+    userId: codeData.userId,
+    clientId: client.clientId,
+    scope: scopes,
+  });
+
   const accessToken = tokenService.generateAccessToken({
     userId: codeData.userId,
     clientId: client.clientId,
@@ -101,6 +108,13 @@ function handleAuthorizationCode(req, res, client) {
     clientId: client.clientId,
     scope: scopes,
   });
+
+  grants.attachRefreshTokenToGrant(
+    codeData.userId,
+    client.clientId,
+    refreshTokenData.tokenId,
+    refreshTokenData.token
+  );
 
   const response = {
     access_token: accessToken,
@@ -216,6 +230,15 @@ function handleRefreshToken(req, res, client) {
   let response;
   if (config.tokens.refreshToken.rotationEnabled) {
     const newRefreshToken = tokenService.rotateRefreshToken(tokenData);
+
+    if (tokenData.userId) {
+      grants.attachRefreshTokenToGrant(
+        tokenData.userId,
+        client.clientId,
+        newRefreshToken.tokenId,
+        newRefreshToken.token
+      );
+    }
 
     response = {
       access_token: accessToken,

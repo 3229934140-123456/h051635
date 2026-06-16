@@ -79,6 +79,9 @@ textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:ve
   <div class="tab active" data-tab="auth-code">授权码流程</div>
   <div class="tab" data-tab="client-creds">客户端凭证</div>
   <div class="tab" data-tab="token-debug">令牌调试</div>
+  <div class="tab" data-tab="userinfo">UserInfo 调试</div>
+  <div class="tab" data-tab="client-mgmt">客户端管理</div>
+  <div class="tab" data-tab="grants">授权记录</div>
   <div class="tab" data-tab="discovery">发现 & JWKS</div>
 </div>
 
@@ -292,44 +295,42 @@ textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:ve
 
     <div class="card">
       <h3>JWKS (JSON Web Key Set)</h3>
-      <div class="warn-box">本服务使用 HS256 对称签名。JWKS 中的 oct 密钥仅供测试验证使用，生产环境应使用 RS256 等非对称签名。</div>
-      <button class="btn btn-outline btn-sm" onclick="loadJWKS()">加载 JWKS</button>
+      <div class="info-box">使用 <strong>RS256 (RSA 2048) 非对称签名</strong>，JWKS 仅公开公钥（n+e），客户端可用公钥验证 id_token 和 access_token，但无法用公开信息签出新 token。</div>
+      <div class="grid-2">
+        <div>
+          <div class="form-group">
+            <label>ID Token Key ID</label>
+            <input type="text" value="<%= idTokenKid %>" readonly style="font-size:12px">
+          </div>
+        </div>
+        <div>
+          <div class="form-group">
+            <label>Access Token Key ID</label>
+            <input type="text" value="<%= accessTokenKid %>" readonly style="font-size:12px">
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="loadJWKS()">加载 JWKS (只含公钥)</button>
       <div id="jwks-result" class="result-box" style="margin-top:12px;min-height:80px"></div>
     </div>
   </div>
 
   <div class="card">
-    <h3>签名密钥信息</h3>
-    <div class="info-box">以下密钥用于 JWT 签名验证。ID Token 使用 id_token_secret，Access Token 使用 access_token_secret。</div>
-    <div class="grid-2">
-      <div>
-        <div class="form-group">
-          <label>ID Token Secret (HS256)</label>
-          <input type="text" id="dk-id-secret" value="<%= idTokenSecret %>" readonly style="font-size:11px">
-        </div>
-      </div>
-      <div>
-        <div class="form-group">
-          <label>Access Token Secret (HS256)</label>
-          <input type="text" id="dk-at-secret" value="<%= accessTokenSecret %>" readonly style="font-size:11px">
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>最小客户端接入示例 (Node.js)</h3>
-    <div class="code-block"><span class="cmt">// 1. 从 JWKS 获取密钥验证 ID Token</span>
+    <h3>最小客户端接入示例 (Node.js - RS256 公钥验签)</h3>
+    <div class="code-block"><span class="cmt">// 1. 从 JWKS 获取 RSA 公钥验证 ID Token</span>
 <span class="kw">const</span> jwt = <span class="fn">require</span>(<span class="str">'jsonwebtoken'</span>);
 
 <span class="kw">const</span> jwksRes = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'<%= issuer %>/.well-known/jwks.json'</span>);
 <span class="kw">const</span> { keys } = <span class="kw">await</span> jwksRes.<span class="fn">json</span>();
-<span class="kw">const</span> idKey = keys.<span class="fn">find</span>(k => k.kid === <span class="str">'id-token-hs256'</span>);
-<span class="kw">const</span> secret = Buffer.<span class="fn">from</span>(idKey.k, <span class="str">'base64'</span>).<span class="fn">toString</span>(<span class="str">'utf-8'</span>);
+<span class="kw">const</span> idKeyJwk = keys.<span class="fn">find</span>(k => k.kid === <span class="str">'<%= idTokenKid %>'</span>);
+<span class="kw">const</span> idPublicKey = jwt.<span class="fn">createPublicKey</span>({
+  key: idKeyJwk,
+  format: <span class="str">'jwk'</span>,
+});
 
 <span class="kw">const</span> idToken = <span class="str">'<从授权码流程获取的 id_token>'</span>;
-<span class="kw">const</span> decoded = jwt.<span class="fn">verify</span>(idToken, secret, {
-  algorithms: [<span class="str">'HS256'</span>],
+<span class="kw">const</span> decoded = jwt.<span class="fn">verify</span>(idToken, idPublicKey, {
+  algorithms: [<span class="str">'RS256'</span>],
   issuer: <span class="str">'<%= issuer %>'</span>,
   audience: <span class="str">'<你的 client_id>'</span>,
 });
@@ -363,6 +364,129 @@ console.<span class="fn">log</span>(decoded.sub, decoded.name, decoded.email);
   body: <span class="str">'grant_type=refresh_token&refresh_token='</span> + tokens.refresh_token,
 });
 <span class="kw">const</span> newTokens = <span class="kw">await</span> refreshRes.<span class="fn">json</span>();</div>
+  </div>
+</div>
+
+<!-- ========== UserInfo 调试 ========== -->
+<div class="panel" id="panel-userinfo">
+  <div class="grid-2">
+    <div class="card">
+      <h3>调用 /userinfo 端点</h3>
+      <div class="warn-box">将 access_token 粘贴到下方。不同的 scope 会返回不同的 claims：只有 openid 时只返回 sub；含 profile 返回 name/给名；含 email 返回 email 和 email_verified。</div>
+      <div class="form-group">
+        <label>Access Token</label>
+        <textarea id="ui-token" placeholder="粘贴 access_token..."></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="callUserinfo()">调用 UserInfo</button>
+      <div style="margin-top:12px" id="ui-result" class="result-box" style="min-height:150px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Claims 对比说明</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#0f172a">
+            <th style="padding:10px;border:1px solid #334155;text-align:left">Claim</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">所需 scope</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:10px;border:1px solid #334155;color:#a5b4fc">sub</td><td style="padding:10px;border:1px solid #334155;color:#94a3b8">openid</td><td style="padding:10px;border:1px solid #334155;color:#e2e8f0">用户唯一标识（始终返回）</td></tr>
+          <tr><td style="padding:10px;border:1px solid #334155;color:#a5b4fc">name / given_name / family_name</td><td style="padding:10px;border:1px solid #334155;color:#94a3b8">profile</td><td style="padding:10px;border:1px solid #334155;color:#e2e8f0">姓名相关</td></tr>
+          <tr><td style="padding:10px;border:1px solid #334155;color:#a5b4fc">email / email_verified</td><td style="padding:10px;border:1px solid #334155;color:#94a3b8">email</td><td style="padding:10px;border:1px solid #334155;color:#e2e8f0">邮箱信息</td></tr>
+          <tr><td style="padding:10px;border:1px solid #334155;color:#a5b4fc">preferred_username</td><td style="padding:10px;border:1px solid #334155;color:#94a3b8">profile</td><td style="padding:10px;border:1px solid #334155;color:#e2e8f0">登录名</td></tr>
+          <tr><td style="padding:10px;border:1px solid #334155;color:#a5b4fc">updated_at</td><td style="padding:10px;border:1px solid #334155;color:#94a3b8">profile</td><td style="padding:10px;border:1px solid #334155;color:#e2e8f0">资料更新时间戳</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Scope 效果快速演示（自动生成 token 对比）</h3>
+    <div class="warn-box">选择下面任一场景，系统会用 Test Web App + 用户凭证签一个带对应 scope 的 token，再调 UserInfo 看 claims 差异。</div>
+    <div class="row" style="gap:8px">
+      <button class="btn btn-outline btn-sm" onclick="demoUserinfoScopes('openid')">仅 openid</button>
+      <button class="btn btn-outline btn-sm" onclick="demoUserinfoScopes('openid profile')">openid + profile</button>
+      <button class="btn btn-outline btn-sm" onclick="demoUserinfoScopes('openid email')">openid + email</button>
+      <button class="btn btn-outline btn-sm" onclick="demoUserinfoScopes('openid profile email')">全量 openid/profile/email</button>
+    </div>
+    <div id="ui-demo-result" class="result-box" style="margin-top:16px;min-height:100px"></div>
+  </div>
+</div>
+
+<!-- ========== 客户端管理 ========== -->
+<div class="panel" id="panel-client-mgmt">
+  <div class="grid-2">
+    <div class="card">
+      <h3>创建新客户端</h3>
+      <div class="form-group">
+        <label>客户端名称 *</label>
+        <input type="text" id="cm-name" placeholder="例如: My Demo App">
+      </div>
+      <div class="form-group">
+        <label>客户端类型</label>
+        <select id="cm-type">
+          <option value="confidential">confidential (需 client_secret)</option>
+          <option value="public">public (移动端 / SPA，无 secret)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Grant Types (空格分隔，authorization_code / client_credentials / refresh_token / implicit)</label>
+        <input type="text" id="cm-grants" value="authorization_code refresh_token">
+      </div>
+      <div class="form-group">
+        <label>Response Types (空格分隔，通常填 code)</label>
+        <input type="text" id="cm-responses" value="code">
+      </div>
+      <div class="form-group">
+        <label>允许的 Scope (空格分隔)</label>
+        <input type="text" id="cm-scope" value="openid profile email read write">
+      </div>
+      <div class="form-group">
+        <label>Redirect URIs (换行分隔，authorization_code 必填)</label>
+        <textarea id="cm-redirects" style="min-height:80px">http://localhost:3000/test/callback</textarea>
+      </div>
+      <button class="btn btn-primary" onclick="createClient()">创建客户端</button>
+      <div id="cm-create-result" class="result-box" style="margin-top:12px;min-height:60px"></div>
+    </div>
+
+    <div class="card">
+      <h3>已注册客户端列表</h3>
+      <div style="margin-bottom:10px">
+        <button class="btn btn-outline btn-sm" onclick="refreshClients()">刷新</button>
+      </div>
+      <div id="cm-list" style="display:flex;flex-direction:column;gap:10px">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 授权记录 ========== -->
+<div class="panel" id="panel-grants">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin-bottom:0">用户 → 客户端 授权记录</h3>
+      <button class="btn btn-outline btn-sm" onclick="refreshGrants()">刷新</button>
+    </div>
+    <div class="info-box">每条记录表示一个用户给某个客户端授过哪些 scope。撤销授权会将该用户对该客户端的所有刷新令牌吊销，旧 refresh_token 将无法换取新 token。</div>
+    <div id="grants-table-wrap" style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#0f172a">
+            <th style="padding:10px;border:1px solid #334155;text-align:left">用户</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">客户端</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">Scope</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">首次授权</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">授权次数</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">状态</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">操作</th>
+          </tr>
+        </thead>
+        <tbody id="grants-tbody">
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -731,6 +855,237 @@ const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('code')) {
   document.getElementById('ac-code').value = urlParams.get('code');
 }
+
+function callUserinfo() {
+  const token = document.getElementById('ui-token').value.trim();
+  if (!token) { alert('请先粘贴 access_token'); return; }
+  fetch(ISSUER + '/userinfo', {
+    headers: { Authorization: 'Bearer ' + token },
+  })
+    .then((r) => r.json().then((data) => ({ status: r.status, data })))
+    .then(({ status, data }) => {
+      const keys = Object.keys(data).join(', ');
+      document.getElementById('ui-result').innerHTML =
+        `<div>HTTP ${status} &nbsp; | &nbsp; Claims: <code style="color:#4ade80">${keys}</code></div>\n` +
+        syntaxHighlight(JSON.stringify(data, null, 2));
+    })
+    .catch((e) => {
+      document.getElementById('ui-result').textContent = '请求失败: ' + e.message;
+    });
+}
+
+function demoUserinfoScopes(scope) {
+  const sel = document.getElementById('ac-client');
+  let client = null;
+  for (const opt of sel.options) {
+    if (opt.value && opt.value && opt.dataset.type === 'confidential') {
+      client = { id: opt.value, secret: opt.dataset.secret };
+      break;
+    }
+  }
+  if (!client) {
+    const fallback = TEST_CLIENTS.find((c) => c.client_secret);
+    if (!fallback) { document.getElementById('ui-demo-result').textContent = '找不到 confidential 客户端'; return; }
+    client = { id: fallback.client_id, secret: fallback.client_secret };
+  }
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    scope: scope,
+  });
+  const auth = 'Basic ' + btoa(client.id + ':' + client.clientSecret);
+  fetch(ISSUER + '/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: auth },
+    body: body.toString(),
+  })
+    .then((r) => r.json().then((t) => ({ status: r.status, t })))
+    .then(({ t }) => {
+      if (!t.access_token) {
+        document.getElementById('ui-demo-result').innerHTML =
+          `<span style="color:var(--error)">获取 token 失败 (client_credentials 不会产生用户级 token，这里演示说明 scope 对 UserInfo 的影响需要走授权码流程获取带用户的 AT)。</span>\n` +
+          syntaxHighlight(JSON.stringify(t, null, 2));
+        return;
+      }
+      return fetch(ISSUER + '/userinfo', {
+        headers: { Authorization: 'Bearer ' + t.access_token },
+      })
+        .then((r) => r.json())
+        .then((u) => {
+          const keys = Object.keys(u);
+          document.getElementById('ui-demo-result').innerHTML =
+            `<div>请求 Scope: <code style="color:#60a5fa">${scope}</code> &nbsp; | &nbsp; 返回 Claims: <code style="color:#4ade80">${keys.join(', ') || '(无)'}</code></div>\n` +
+            syntaxHighlight(JSON.stringify(u, null, 2));
+        });
+    })
+    .catch((e) => {
+      document.getElementById('ui-demo-result').textContent = '请求失败: ' + e.message;
+    });
+}
+
+function createClient() {
+  const name = document.getElementById('cm-name').value.trim();
+  const type = document.getElementById('cm-type').value;
+  const grants = document.getElementById('cm-grants').value.trim().split(/\s+/).filter(Boolean);
+  const responses = document.getElementById('cm-responses').value.trim().split(/\s+/).filter(Boolean);
+  const scope = document.getElementById('cm-scope').value.trim();
+  const redirectUris = document.getElementById('cm-redirects').value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+
+  if (!name) { alert('请填写客户端名称'); return; }
+
+  fetch(ISSUER + '/api/clients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      type,
+      grant_types: grants,
+      response_types: responses,
+      scope: scope,
+      redirect_uris: redirectUris,
+    }),
+  })
+    .then((r) => r.json().then((d) => ({ status: r.status, d })))
+    .then(({ status, d }) => {
+      document.getElementById('cm-create-result').innerHTML =
+        `<div>HTTP ${status}</div>\n` + syntaxHighlight(JSON.stringify(d, null, 2));
+      if (status === 201) {
+        refreshClients();
+        alert('客户端创建成功！client_secret 只会在这里出现一次，请妥善保存。');
+        refreshAllClientSelects().catch(()=>{});
+      }
+    })
+    .catch((e) => {
+      document.getElementById('cm-create-result').textContent = '请求失败: ' + e.message;
+    });
+}
+
+function deleteClient(clientId) {
+  if (!confirm('确认删除客户端 ' + clientId + ' ?')) return;
+  fetch(ISSUER + '/api/clients/' + encodeURIComponent(clientId), { method: 'DELETE' })
+    .then((r) => r.json())
+    .then((d) => {
+      alert(d.removed ? '已删除' : '删除失败');
+      refreshClients();
+      refreshAllClientSelects().catch(()=>{});
+    });
+}
+
+function refreshClients() {
+  fetch(ISSUER + '/api/clients')
+    .then((r) => r.json())
+    .then((d) => {
+      const list = document.getElementById('cm-list');
+      list.innerHTML = '';
+      for (const c of d.test_clients) {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.style.marginBottom = '0';
+        div.style.padding = '14px';
+        const auth = btoa((c.client_id || '') + ':' + (c.client_secret || ''));
+        div.innerHTML =
+          `<div style="font-weight:600;color:#fff;margin-bottom:6px">${c.name} <span style="font-weight:400;font-size:12px;color:#94a3b8">(<span style="color:${c.type==='confidential'?'#f59e0b':'#60a5fa'}">${c.type}</span>)</span></div>` +
+          `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">client_id: <code style="color:#a5b4fc">${c.client_id}</code></div>` +
+          (c.client_secret ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">client_secret: <code style="color:#4ade80">${c.client_secret}</code></div>` : '') +
+          `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">grant_types: <code>${c.grant_types.join(' ')}</code></div>` +
+          `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">scope: <code>${c.scope}</code></div>` +
+          `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">redirect_uris: <code>${(c.redirect_uris||[]).join(', ') || '(无)'}</code></div>` +
+          `<button class="btn btn-danger btn-sm" style="padding:4px 10px" onclick="deleteClient('${c.client_id}')">删除</button>`;
+        list.appendChild(div);
+      }
+    });
+}
+
+async function refreshAllClientSelects() {
+  const r = await fetch(ISSUER + '/api/clients');
+  const d = await r.json();
+  const acSel = document.getElementById('ac-client');
+  const ccSel = document.getElementById('cc-client');
+  const quickSel = document.getElementById('td-quick-client');
+
+  function fillSelect(sel, filterFn) {
+    const selVal = sel.value;
+    sel.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = '-- 请选择 --';
+    sel.appendChild(def);
+    for (const c of d.test_clients) {
+      if (!filterFn(c)) continue;
+      const o = document.createElement('option');
+      o.value = c.client_id;
+      o.dataset.secret = c.client_secret || '';
+      o.dataset.type = c.type;
+      o.dataset.scope = c.scope;
+      o.textContent = `${c.name} (${c.type})`;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some((o) => o.value === selVal)) sel.value = selVal;
+  }
+
+  fillSelect(acSel, (c) => c.grant_types.includes('authorization_code'));
+  fillSelect(ccSel, (c) => c.grant_types.includes('client_credentials'));
+
+  quickSel.innerHTML = '';
+  const def2 = document.createElement('option');
+  def2.value = '';
+  def2.textContent = '-- 选择客户端自动填入认证信息 --';
+  quickSel.appendChild(def2);
+  for (const c of d.test_clients) {
+    const o = document.createElement('option');
+    o.value = c.client_id + ':' + (c.client_secret || '');
+    o.textContent = c.name;
+    quickSel.appendChild(o);
+  }
+}
+
+function refreshGrants() {
+  fetch(ISSUER + '/api/grants')
+    .then((r) => r.json())
+    .then((arr) => {
+      const tbody = document.getElementById('grants-tbody');
+      tbody.innerHTML = '';
+      if (!arr.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;border:1px solid #334155;text-align:center;color:#94a3b8">暂无授权记录，完成一次授权码流程后会出现。</td></tr>`;
+        return;
+      }
+      for (const g of arr) {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td style="padding:10px;border:1px solid #334155">${g.user_name}</td>` +
+          `<td style="padding:10px;border:1px solid #334155">${g.client_name}</td>` +
+          `<td style="padding:10px;border:1px solid #334155;font-size:12px;color:#a5b4fc">${g.scope}</td>` +
+          `<td style="padding:10px;border:1px solid #334155;font-size:12px;color:#94a3b8">${g.created_at}</td>` +
+          `<td style="padding:10px;border:1px solid #334155;text-align:center">${g.authorization_count}</td>` +
+          `<td style="padding:10px;border:1px solid #334155">${g.revoked
+            ? '<span class="status-badge status-inactive">已撤销</span>'
+            : '<span class="status-badge status-active">● 有效</span>'}</td>` +
+          `<td style="padding:10px;border:1px solid #334155">${g.revoked
+            ? '<span style="color:#64748b;font-size:12px">' + (g.revoked_at || '') + '</span>'
+            : `<button class="btn btn-danger btn-sm" onclick="revokeGrant('${g.user_id}','${g.client_id}')">撤销授权</button>`}</td>`;
+        tbody.appendChild(tr);
+      }
+    });
+}
+
+function revokeGrant(userId, clientId) {
+  if (!confirm('确认撤销该用户对该客户端的授权？该用户的所有 refresh_token 将被吊销。')) return;
+  fetch(ISSUER + '/api/grants/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, client_id: clientId }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      alert(`撤销完成。找到授权:${d.found}，吊销 refresh_token 数:${d.tokens_revoked}`);
+      refreshGrants();
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshClients();
+  refreshGrants();
+});
+
 </script>
 </body>
 </html>

@@ -130,7 +130,10 @@ function generateAccessToken({ userId, clientId, scope, additionalClaims = {} })
     payload.user_id = userId;
   }
 
-  return jwt.sign(payload, config.tokens.accessToken.secret, { algorithm: 'HS256' });
+  return jwt.sign(payload, config.tokens.accessToken.privateKey, {
+    algorithm: 'RS256',
+    keyid: config.tokens.accessToken.kid,
+  });
 }
 
 function verifyAccessToken(token) {
@@ -139,8 +142,8 @@ function verifyAccessToken(token) {
       return { valid: false, error: 'invalid_token', errorDescription: 'Token has been revoked' };
     }
 
-    const decoded = jwt.verify(token, config.tokens.accessToken.secret, {
-      algorithms: ['HS256'],
+    const decoded = jwt.verify(token, config.tokens.accessToken.publicKey, {
+      algorithms: ['RS256'],
       issuer: config.server.issuer,
     });
 
@@ -369,4 +372,6 @@ module.exports = {
   introspectToken,
   hasScope,
   validateScopeAccess,
+  _getRefreshTokenMap: () => refreshTokens,
+  _getRevokedRefreshTokenIds: () => revokedRefreshTokenIds,
 };

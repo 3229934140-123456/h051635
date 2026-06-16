@@ -35,7 +35,10 @@ function generateIdToken({ user, clientId, nonce, scope, accessToken, code }) {
     payload.c_hash = computeCodeHash(code);
   }
 
-  return jwt.sign(payload, config.tokens.idToken.secret, { algorithm: 'HS256' });
+  return jwt.sign(payload, config.tokens.idToken.privateKey, {
+    algorithm: 'RS256',
+    keyid: config.tokens.idToken.kid,
+  });
 }
 
 function computeAtHash(accessToken) {
@@ -59,8 +62,8 @@ function base64UrlEncode(buffer) {
 
 function verifyIdToken(token) {
   try {
-    const decoded = jwt.verify(token, config.tokens.idToken.secret, {
-      algorithms: ['HS256'],
+    const decoded = jwt.verify(token, config.tokens.idToken.publicKey, {
+      algorithms: ['RS256'],
       issuer: config.server.issuer,
     });
     return { valid: true, decoded, error: null };
@@ -127,10 +130,10 @@ router.get('/.well-known/openid-configuration', (req, res) => {
     response_modes_supported: ['query', 'fragment'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
-    token_endpoint_auth_signing_alg_values_supported: ['HS256'],
+    token_endpoint_auth_signing_alg_values_supported: ['RS256'],
     service_documentation: `${issuer}/.well-known/openid-configuration`,
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['HS256'],
+    id_token_signing_alg_values_supported: ['RS256'],
     id_token_encryption_alg_values_supported: [],
     id_token_encryption_enc_values_supported: [],
     userinfo_signing_alg_values_supported: [],
@@ -176,35 +179,7 @@ router.get('/.well-known/openid-configuration', (req, res) => {
 });
 
 router.get('/.well-known/jwks.json', (req, res) => {
-  const idTokenSecret = config.tokens.idToken.secret;
-  const accessTokenSecret = config.tokens.accessToken.secret;
-
-  function toBase64Url(str) {
-    return Buffer.from(str, 'utf-8')
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
-
-  const keys = [
-    {
-      kty: 'oct',
-      use: 'sig',
-      alg: 'HS256',
-      kid: 'id-token-hs256',
-      k: toBase64Url(idTokenSecret),
-    },
-    {
-      kty: 'oct',
-      use: 'sig',
-      alg: 'HS256',
-      kid: 'access-token-hs256',
-      k: toBase64Url(accessTokenSecret),
-    },
-  ];
-
-  res.json({ keys });
+  res.json({ keys: config.jwks.keys });
 });
 
 module.exports = {

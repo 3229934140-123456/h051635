@@ -7,6 +7,7 @@ const config = require('./config');
 const clients = require('./clients');
 const auth = require('./auth');
 const tokenService = require('./tokenService');
+const grants = require('./grants');
 const authorizationRouter = require('./authorization');
 const tokenRouter = require('./token');
 const oidc = require('./oidc');
@@ -29,25 +30,126 @@ app.get('/', (req, res) => {
     client_secret: client.clientSecret,
     type: client.type,
     grant_types: client.grantTypes,
+    response_types: client.responseTypes,
     scope: client.scope,
     redirect_uris: client.redirectUris,
+    created_at: client.createdAt,
   }));
 
   const testUsers = [
-    { username: 'alice', password: 'password123', name: 'Alice Wang' },
-    { username: 'bob', password: 'password456', name: 'Bob Li' },
+    { username: 'alice', password: 'password123', name: 'Alice Wang', user_id: 'user-alice' },
+    { username: 'bob', password: 'password456', name: 'Bob Li', user_id: 'user-bob' },
   ];
 
   const scopes = Object.entries(config.scopes).map(([key, desc]) => ({ key, desc }));
   const issuer = config.server.issuer;
 
+  const allGrants = grants.getAllGrants().map((g) => ({
+    grant_id: g.grantId,
+    user_id: g.userId,
+    user_name: testUsers.find((u) => u.user_id === g.userId)?.name || g.userId,
+    client_id: g.clientId,
+    client_name: testClients.find((c) => c.client_id === g.clientId)?.name || g.clientId,
+    scope: Array.isArray(g.scope) ? g.scope.join(' ') : g.scope,
+    created_at: new Date(g.createdAt).toISOString(),
+    updated_at: new Date(g.updatedAt).toISOString(),
+    authorization_count: g.authorizationCount,
+    revoked: !!g.revoked,
+    revoked_at: g.revokedAt ? new Date(g.revokedAt).toISOString() : null,
+  }));
+
   res.render('index', {
     testClients,
     testUsers,
     scopes,
+    allGrants,
     issuer,
-    idTokenSecret: config.tokens.idToken.secret,
-    accessTokenSecret: config.tokens.accessToken.secret,
+    idTokenKid: config.tokens.idToken.kid,
+    accessTokenKid: config.tokens.accessToken.kid,
+  });
+});
+
+app.post('/api/clients', (req, res) => {
+  try {
+    const {
+      name,
+      redirect_uris = [],
+      grant_types = ['authorization_code', 'refresh_token'],
+      response_types = ['code'],
+      scope = 'openid profile',
+      type = 'confidential',
+    } = req.body || {};
+
+    const registered = clients.registerClient({
+      name,
+      redirectUris: Array.isArray(redirect_uris) ? redirect_uris : redirect_uris.split(/\s+/).filter(Boolean),
+      grantTypes: Array.isArray(grant_types) ? grant_types : grant_types.split(/\s+/).filter(Boolean),
+      responseTypes: Array.isArray(response_types) ? response_types : response_types.split(/\s+/).filter(Boolean),
+      scope: Array.isArray(scope) ? scope.join(' ') : scope,
+      type,
+    });
+
+    res.status(201).json({
+      client_id: registered.clientId,
+      client_secret: registered.clientSecret,
+      name: registered.name,
+      redirect_uris: registered.redirectUris,
+      grant_types: registered.grantTypes,
+      response_types: registered.responseTypes,
+      scope: registered.scope,
+      type: registered.type,
+      created_at: registered.createdAt,
+    });
+  } catch (err) {
+    res.status(400).json({ error: 'invalid_request', error_description: err.message });
+  }
+});
+
+app.delete('/api/clients/:clientId', (req, res) => {
+  const removed = clients._removeClient && clients._removeClient(req.params.clientId);
+  if (!removed && typeof clients._removeClient !== 'function') {
+    return res.status(501).json({ error: 'not_implemented', error_description: 'Client removal not supported' });
+  }
+  if (removed) {
+    return res.json({ removed: true });
+  }
+  res.status(404).json({ error: 'not_found', error_description: 'Client not found' });
+});
+
+app.get('/api/grants', (req, res) => {
+  const allClients = clients.getAllClients();
+  const testUsers = [
+    { username: 'alice', password: 'password123', name: 'Alice Wang', user_id: 'user-alice' },
+    { username: 'bob', password: 'password456', name: 'Bob Li', user_id: 'user-bob' },
+  ];
+
+  const allGrants = grants.getAllGrants().map((g) => ({
+    grant_id: g.grantId,
+    user_id: g.userId,
+    user_name: testUsers.find((u) => u.user_id === g.userId)?.name || g.userId,
+    client_id: g.clientId,
+    client_name: allClients.find((c) => c.clientId === g.clientId)?.name || g.clientId,
+    scope: Array.isArray(g.scope) ? g.scope.join(' ') : g.scope,
+    created_at: new Date(g.createdAt).toISOString(),
+    updated_at: new Date(g.updatedAt).toISOString(),
+    authorization_count: g.authorizationCount,
+    revoked: !!g.revoked,
+    revoked_at: g.revokedAt ? new Date(g.revokedAt).toISOString() : null,
+  }));
+
+  res.json(allGrants);
+});
+
+app.post('/api/grants/revoke', (req, res) => {
+  const { user_id, client_id } = req.body || {};
+  if (!user_id || !client_id) {
+    return res.status(400).json({ error: 'invalid_request', error_description: 'user_id and client_id are required' });
+  }
+
+  const result = grants.revokeUserGrantAndTokens(user_id, client_id);
+  res.json({
+    found: result.found,
+    tokens_revoked: result.tokensRevoked,
   });
 });
 
@@ -60,12 +162,14 @@ app.get('/api/clients', (req, res) => {
       client_secret: client.clientSecret,
       type: client.type,
       grant_types: client.grantTypes,
+      response_types: client.responseTypes,
       scope: client.scope,
       redirect_uris: client.redirectUris,
+      created_at: client.createdAt,
     })),
     test_users: [
-      { username: 'alice', password: 'password123', name: 'Alice Wang' },
-      { username: 'bob', password: 'password456', name: 'Bob Li' },
+      { username: 'alice', password: 'password123', name: 'Alice Wang', user_id: 'user-alice' },
+      { username: 'bob', password: 'password456', name: 'Bob Li', user_id: 'user-bob' },
     ],
   });
 });

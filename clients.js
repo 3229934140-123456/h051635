@@ -172,4 +172,12 @@ module.exports = {
   parseScope,
   validateScope,
   hashSecret,
+  _removeClient: (clientId) => {
+    const exists = clients.has(clientId);
+    if (exists) {
+      clients.delete(clientId);
+      testClientSecrets.delete(clientId);
+    }
+    return exists;
+  },
 };
