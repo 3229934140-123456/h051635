@@ -2,6 +2,8 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const path = require('path');
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 
 const config = require('./config');
 const clients = require('./clients');
@@ -11,6 +13,7 @@ const grants = require('./grants');
 const authorizationRouter = require('./authorization');
 const tokenRouter = require('./token');
 const oidc = require('./oidc');
+const clientsModule = require('./clients');
 
 const app = express();
 
@@ -54,6 +57,7 @@ app.get('/', (req, res) => {
     created_at: new Date(g.createdAt).toISOString(),
     updated_at: new Date(g.updatedAt).toISOString(),
     authorization_count: g.authorizationCount,
+    chain_index: g.chainIndex || 1,
     revoked: !!g.revoked,
     revoked_at: g.revokedAt ? new Date(g.revokedAt).toISOString() : null,
   }));
@@ -133,6 +137,7 @@ app.get('/api/grants', (req, res) => {
     created_at: new Date(g.createdAt).toISOString(),
     updated_at: new Date(g.updatedAt).toISOString(),
     authorization_count: g.authorizationCount,
+    chain_index: g.chainIndex || 1,
     revoked: !!g.revoked,
     revoked_at: g.revokedAt ? new Date(g.revokedAt).toISOString() : null,
   }));
@@ -151,6 +156,175 @@ app.post('/api/grants/revoke', (req, res) => {
     found: result.found,
     tokens_revoked: result.tokensRevoked,
   });
+});
+
+app.post('/api/grants/reauthorize', (req, res) => {
+  const { user_id, client_id, scope } = req.body || {};
+  if (!user_id || !client_id) {
+    return res.status(400).json({ error: 'invalid_request', error_description: 'user_id and client_id are required' });
+  }
+
+  const newGrant = grants.reauthorizeGrant({ userId: user_id, clientId: client_id, scope });
+  res.json({
+    grant_id: newGrant.grantId,
+    scope: Array.isArray(newGrant.scope) ? newGrant.scope.join(' ') : newGrant.scope,
+    chain_index: newGrant.chainIndex,
+  });
+});
+
+app.post('/api/grants/narrow', (req, res) => {
+  const { user_id, client_id, scope } = req.body || {};
+  if (!user_id || !client_id) {
+    return res.status(400).json({ error: 'invalid_request', error_description: 'user_id, client_id, scope required' });
+  }
+  const g = grants.narrowGrantScope(user_id, client_id, scope);
+  if (!g) return res.status(404).json({ error: 'not_found' });
+  res.json({
+    grant_id: g.grantId,
+    scope: Array.isArray(g.scope) ? g.scope.join(' ') : g.scope,
+  });
+});
+
+app.get('/api/tokens/lifecycle', (req, res) => {
+  const rtMap = tokenService._getRefreshTokenMap ? tokenService._getRefreshTokenMap() : new Map();
+  const revoked = tokenService._getRevokedRefreshTokenIds ? tokenService._getRevokedRefreshTokenIds() : new Set();
+  const tokens = [];
+  for (const [tokenStr, td] of rtMap.entries()) {
+    const createdAt = td.createdAt || Date.now();
+    const expiresAt = td.expiresAt || (createdAt + 86400 * 1000);
+    const ttl = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+    tokens.push({
+      token: tokenStr.substring(0, 16) + '...' + tokenStr.substring(tokenStr.length - 8),
+      token_id: td.tokenId,
+      prev_id: td.prevTokenId || null,
+      next_id: td.nextTokenId || null,
+      user_id: td.userId,
+      client_id: td.clientId,
+      type: 'refresh_token',
+      created_at: new Date(createdAt).toISOString(),
+      expires_at: new Date(expiresAt).toISOString(),
+      ttl_seconds: ttl,
+      active: !revoked.has(td.tokenId) && ttl > 0,
+      revoked: revoked.has(td.tokenId),
+      rotation_count: td.rotationCount || 0,
+    });
+  }
+  tokens.sort((a, b) => (b.created_at > a.created_at ? 1 : -1));
+  res.json({ refresh_tokens: tokens });
+});
+
+app.post('/api/clients/import', (req, res) => {
+  const arr = Array.isArray(req.body) ? req.body : req.body.clients;
+  if (!Array.isArray(arr)) {
+    return res.status(400).json({ error: 'invalid_request', error_description: 'Expected array of clients' });
+  }
+  const created = [];
+  for (const c of arr) {
+    try {
+      const r = clientsModule.registerClient({
+        name: c.name || 'Imported Client',
+        redirectUris: c.redirect_uris || [],
+        grantTypes: c.grant_types || ['authorization_code', 'refresh_token'],
+        responseTypes: c.response_types || ['code'],
+        scope: c.scope || 'openid profile',
+        type: c.type || 'confidential',
+      });
+      created.push({
+        client_id: r.clientId,
+        client_secret: r.clientSecret,
+        name: r.name,
+        redirect_uris: r.redirectUris,
+        grant_types: r.grantTypes,
+        response_types: r.responseTypes,
+        scope: r.scope,
+        type: r.type,
+        created_at: r.createdAt,
+      });
+    } catch (e) { /* skip */ }
+  }
+  res.json({ imported: created.length, clients: created });
+});
+
+app.get('/api/clients/export', (req, res) => {
+  const list = clientsModule.getAllClients ? clientsModule.getAllClients() : [];
+  res.json({
+    clients: list.map((c) => ({
+      name: c.name,
+      type: c.type,
+      grant_types: c.grantTypes,
+      response_types: c.responseTypes,
+      scope: c.scope,
+      redirect_uris: c.redirectUris,
+      _client_id: c.clientId,
+      _client_secret: c.clientSecret,
+    })),
+    exported_at: new Date().toISOString(),
+  });
+});
+
+app.post('/api/verify-jwt', (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'token required' });
+  try {
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded) return res.status(400).json({ ok: false, error: 'not a JWT' });
+    const kid = decoded.header && decoded.header.kid;
+    const jwk = kid ? config.jwks.keys.find((k) => k.kid === kid) : null;
+    let verified = null;
+    let verifyError = null;
+    if (jwk) {
+      try {
+        const pubKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+        verified = jwt.verify(token, pubKey, { algorithms: ['RS256'], ignoreExpiration: true, ignoreNotBefore: true });
+      } catch (e) {
+        verifyError = e.message;
+      }
+    }
+    const { exp, iat, nbf } = (decoded.payload || {});
+    const now = Math.floor(Date.now() / 1000);
+    res.json({
+      ok: true,
+      header: decoded.header,
+      payload: decoded.payload,
+      signature: decoded.signature,
+      matched_kid: kid || null,
+      matched_jwk_exists: !!jwk,
+      signature_valid: !!verified,
+      verify_error: verifyError,
+      timing: {
+        issued_at: iat ? new Date(iat * 1000).toISOString() : null,
+        expires_at: exp ? new Date(exp * 1000).toISOString() : null,
+        not_before: nbf ? new Date(nbf * 1000).toISOString() : null,
+        expires_in: exp ? Math.max(0, exp - now) : null,
+        expired: exp ? now > exp : null,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/_test/create-auth-code', (req, res) => {
+  try {
+    const {
+      client_id, user_id, redirect_uri, scope = 'openid profile',
+      nonce = null, code_challenge = null, code_challenge_method = 'S256',
+    } = req.body || {};
+    if (!client_id || !user_id || !redirect_uri) {
+      return res.status(400).json({ error: 'client_id, user_id, redirect_uri required' });
+    }
+    const codeData = tokenService.generateAuthorizationCode({
+      clientId: client_id, userId: user_id, redirectUri: redirect_uri,
+      scope, codeChallenge: code_challenge, codeChallengeMethod: code_challenge ? (code_challenge_method || 'S256') : null,
+      nonce,
+    });
+    res.json({
+      code: codeData.code,
+      expires_at: new Date(codeData.expiresAt).toISOString(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/clients', (req, res) => {

@@ -77,11 +77,14 @@ textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:ve
 
 <div class="tabs">
   <div class="tab active" data-tab="auth-code">授权码流程</div>
+  <div class="tab" data-tab="pkce">PKCE 调试</div>
   <div class="tab" data-tab="client-creds">客户端凭证</div>
   <div class="tab" data-tab="token-debug">令牌调试</div>
+  <div class="tab" data-tab="token-lifecycle">令牌生命周期</div>
   <div class="tab" data-tab="userinfo">UserInfo 调试</div>
   <div class="tab" data-tab="client-mgmt">客户端管理</div>
   <div class="tab" data-tab="grants">授权记录</div>
+  <div class="tab" data-tab="jwt-verify">JWT 验签工具</div>
   <div class="tab" data-tab="discovery">发现 & JWKS</div>
 </div>
 
@@ -159,6 +162,102 @@ textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:ve
   <div class="card" id="ac-result-card" style="display:none">
     <h3><span class="icon" style="background:rgba(139,92,246,.2);color:#a78bfa">3</span> 令牌结果</h3>
     <div id="ac-token-results"></div>
+  </div>
+</div>
+
+<!-- ========== PKCE 调试 ========== -->
+<div class="panel" id="panel-pkce">
+  <div class="step-indicator">
+    <div class="step current" id="pkce-step1"></div>
+    <div class="step" id="pkce-step2"></div>
+    <div class="step" id="pkce-step3"></div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(236,72,153,.2);color:#f472b6">1</span> PKCE 代码对生成</h3>
+        <div class="info-box">Public 客户端强烈推荐使用 PKCE，即使授权码被拦截，没有 code_verifier 也无法换令牌。S256 模式下服务端只存 challenge，不存 verifier。</div>
+        <div class="form-group">
+          <label>方法 (code_challenge_method)</label>
+          <select id="pkce-method">
+            <option value="S256" selected>S256 (SHA-256 + Base64url, 推荐)</option>
+            <option value="plain">plain (verifier 直接传输，不安全)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>code_verifier (43-128 个字符，字母数字+-.~_)</label>
+          <textarea id="pkce-verifier" rows="2" placeholder="点击生成 code_verifier"></textarea>
+        </div>
+        <div class="form-group">
+          <label>code_challenge (服务端保存比对用)</label>
+          <textarea id="pkce-challenge" rows="2" placeholder="根据 verifier 自动计算得到" readonly></textarea>
+        </div>
+        <div class="row" style="margin-bottom:16px">
+          <button class="btn btn-primary btn-sm" onclick="pkceGenerate()">🔐 生成 code_verifier + challenge</button>
+          <button class="btn btn-outline btn-sm" onclick="pkceRecalc()">🔄 仅重新计算 challenge</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(99,102,241,.2);color:#818cf8">2</span> 发起带 PKCE 的授权码请求</h3>
+        <div class="form-group">
+          <label>客户端 (仅显示支持 authorization_code 的)</label>
+          <select id="pkce-client" onchange="onPkceClientChange()">
+            <option value="">-- 请选择 --</option>
+            <% testClients.forEach(function(c) { %>
+              <% if (c.grant_types.includes('authorization_code')) { %>
+                <option value="<%= c.client_id %>" data-type="<%= c.type %>" data-scope="<%= c.scope %>"><%= c.name %> (<%= c.type %>)</option>
+              <% } %>
+            <% }); %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>测试用户</label>
+          <select id="pkce-user">
+            <% testUsers.forEach(function(u) { %>
+              <option value="<%= u.username %>"><%= u.name %> (<%= u.username %>)</option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Scope</label>
+          <input type="text" id="pkce-scope" value="openid profile">
+        </div>
+        <div class="form-group">
+          <label>Redirect URI</label>
+          <input type="text" id="pkce-redirect" value="<%= issuer %>/test/callback">
+        </div>
+        <div class="form-group">
+          <label>State</label>
+          <input type="text" id="pkce-state" value="pkce-state-<%= Math.random().toString(36).substring(2,8) %>">
+        </div>
+        <button class="btn btn-primary" onclick="pkceStartAuth()">发起 PKCE 授权请求</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(34,197,94,.2);color:#4ade80">3</span> 用 code_verifier 换令牌</h3>
+        <div class="form-group">
+          <label>Authorization Code</label>
+          <textarea id="pkce-code" rows="2" placeholder="回调返回的 code"></textarea>
+        </div>
+        <div class="form-group">
+          <label>故意填入错误的 verifier (用于演示失败)</label>
+          <input type="checkbox" id="pkce-wrong-verifier" style="width:auto;margin-right:8px;vertical-align:middle"> <label for="pkce-wrong-verifier" style="display:inline;color:#f87171;margin:0">故意填错 verifier 看 invalid_grant</label>
+        </div>
+        <div class="row" style="gap:8px;margin-bottom:16px">
+          <button class="btn btn-success" onclick="pkceExchange(false)">✅ 用正确 verifier 换令牌</button>
+          <button class="btn btn-danger btn-sm" onclick="pkceExchange(true)">❌ 模拟填错 verifier</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>结果</h3>
+        <div id="pkce-result" class="result-box" style="min-height:220px">先点击"生成 code_verifier + challenge"按钮</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -276,6 +375,84 @@ textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:ve
           <option value="<%= c.client_id %>:<%= c.client_secret || '' %>"><%= c.name %></option>
         <% }); %>
       </select>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 令牌生命周期 ========== -->
+<div class="panel" id="panel-token-lifecycle">
+  <div class="card">
+    <h3><span class="icon" style="background:rgba(245,158,11,.2);color:#fbbf24">⏳</span> 令牌生命周期 & 轮换链路</h3>
+    <div class="info-box">此处列出服务端的全部 refresh_token，包含过期时间、剩余 TTL、轮换链路(prev/next)、吊销状态。点击下方按钮从服务端 `/api/tokens/lifecycle` 拉取最新列表。</div>
+    <div class="row" style="gap:8px;margin-bottom:16px">
+      <button class="btn btn-primary" onclick="loadLifecycle()">🔄 刷新令牌生命周期列表</button>
+      <button class="btn btn-outline btn-sm" onclick="loadLifecycleDiff()">🔎 上次对照 (对比前后 token 变化)</button>
+    </div>
+    <div id="lifecycle-diff" class="warn-box" style="display:none;margin-bottom:16px"></div>
+    <div id="lifecycle-table" style="overflow-x:auto">
+      <div class="info-box">暂无数据，点击上方"刷新令牌生命周期列表"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon" style="background:rgba(99,102,241,.2);color:#818cf8">🔁</span> 手动触发 refresh_token 轮换 (对照演示)</h3>
+    <div class="form-group">
+      <label>粘贴 refresh_token</label>
+      <textarea id="lifecycle-refresh-token" rows="2" placeholder="复制一个 refresh_token 到这里"></textarea>
+    </div>
+    <div class="form-group">
+      <label>客户端认证 (client_id:client_secret)</label>
+      <input type="text" id="lifecycle-refresh-auth" placeholder="client_id:client_secret">
+    </div>
+    <div class="row" style="gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary btn-sm" onclick="doLifecycleRefresh()">🔁 执行刷新轮换</button>
+    </div>
+    <div id="lifecycle-refresh-result" class="result-box" style="min-height:80px"></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon" style="background:rgba(16,185,129,.2);color:#34d399">🪪</span> JWT 三类令牌 (AT/RT/ID) 详细信息</h3>
+    <div class="form-group">
+      <label>粘贴任一 JWT (access_token / id_token / refresh_token)</label>
+      <textarea id="lifecycle-jwt" rows="3" placeholder="粘贴任意令牌..."></textarea>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="inspectJwtLifecycle()">🔍 解析并显示</button>
+    <div id="lifecycle-jwt-result" class="grid-2" style="margin-top:16px;gap:16px"></div>
+  </div>
+</div>
+
+<!-- ========== JWT 验签工具 ========== -->
+<div class="panel" id="panel-jwt-verify">
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(139,92,246,.2);color:#a78bfa">🔐</span> JWKS 自动验签工具</h3>
+        <div class="info-box">粘贴任一 JWT (id_token 或 access_token)，点击下方按钮后：<br>① 自动解析 header、payload；② 根据 header 中的 <code>kid</code> 从 JWKS 查找匹配公钥；③ 用 RSA 公钥做 RS256 验签；④ 显示过期时间/剩余时间。</div>
+        <div class="form-group">
+          <label>JWT Token</label>
+          <textarea id="verify-jwt" rows="6" placeholder="粘贴 id_token 或 access_token 或 refresh_token..."></textarea>
+        </div>
+        <div class="row" style="gap:8px;margin-bottom:16px">
+          <button class="btn btn-primary" onclick="verifyJwt()">🔎 用 JWKS 自动验签</button>
+          <button class="btn btn-outline btn-sm" onclick="loadJwksInVerify()">📋 查看 JWKS</button>
+        </div>
+        <div id="verify-jwks" class="result-box" style="min-height:80px;display:none"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h3>Header</h3>
+        <div id="verify-header" class="result-box" style="min-height:80px">等待输入 token...</div>
+      </div>
+      <div class="card">
+        <h3>Payload</h3>
+        <div id="verify-payload" class="result-box" style="min-height:180px"></div>
+      </div>
+      <div class="card">
+        <h3>验签 & 签名状态</h3>
+        <div id="verify-result" class="result-box" style="min-height:120px">等待输入 token...</div>
+      </div>
     </div>
   </div>
 </div>
@@ -453,8 +630,18 @@ console.<span class="fn">log</span>(decoded.sub, decoded.name, decoded.email);
 
     <div class="card">
       <h3>已注册客户端列表</h3>
-      <div style="margin-bottom:10px">
+      <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-outline btn-sm" onclick="refreshClients()">刷新</button>
+        <button class="btn btn-success btn-sm" onclick="exportClients()">📤 导出 JSON</button>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('cm-import-text').style.display=(document.getElementById('cm-import-text').style.display==='none'?'block':'none')">📥 导入 JSON</button>
+        <button class="btn btn-outline btn-sm" onclick="restoreClientsFromLocal()">💾 从本地保存恢复</button>
+      </div>
+      <div id="cm-import-text" style="display:none;margin-bottom:10px">
+        <textarea id="cm-import-content" rows="4" placeholder="粘贴从导出得到的 JSON 或兼容的客户端数组" style="width:100%;box-sizing:border-box"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="importClients()">✨ 导入到服务端</button>
+          <button class="btn btn-success btn-sm" onclick="saveClientsToLocal()">仅保存到浏览器本地 (localStorage)</button>
+        </div>
       </div>
       <div id="cm-list" style="display:flex;flex-direction:column;gap:10px">
       </div>
@@ -466,17 +653,18 @@ console.<span class="fn">log</span>(decoded.sub, decoded.name, decoded.email);
 <div class="panel" id="panel-grants">
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <h3 style="margin-bottom:0">用户 → 客户端 授权记录</h3>
+      <h3 style="margin-bottom:0">用户 → 客户端 授权记录 (含历史链路)</h3>
       <button class="btn btn-outline btn-sm" onclick="refreshGrants()">刷新</button>
     </div>
-    <div class="info-box">每条记录表示一个用户给某个客户端授过哪些 scope。撤销授权会将该用户对该客户端的所有刷新令牌吊销，旧 refresh_token 将无法换取新 token。</div>
+    <div class="info-box">每条记录表示一个用户给某个客户端授过哪些 scope。撤销授权会将该用户对该客户端的所有刷新令牌吊销，旧 refresh_token 将无法换取新 token。同一对 (用户, 客户端) 再次授权时将产生新的 chain_index 作为独立的新授权链。</div>
     <div id="grants-table-wrap" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="background:#0f172a">
+            <th style="padding:10px;border:1px solid #334155;text-align:left">授权链路</th>
             <th style="padding:10px;border:1px solid #334155;text-align:left">用户</th>
             <th style="padding:10px;border:1px solid #334155;text-align:left">客户端</th>
-            <th style="padding:10px;border:1px solid #334155;text-align:left">Scope</th>
+            <th style="padding:10px;border:1px solid #334155;text-align:left">Scope (点击缩减)</th>
             <th style="padding:10px;border:1px solid #334155;text-align:left">首次授权</th>
             <th style="padding:10px;border:1px solid #334155;text-align:left">授权次数</th>
             <th style="padding:10px;border:1px solid #334155;text-align:left">状态</th>
@@ -1045,23 +1233,39 @@ function refreshGrants() {
       const tbody = document.getElementById('grants-tbody');
       tbody.innerHTML = '';
       if (!arr.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;border:1px solid #334155;text-align:center;color:#94a3b8">暂无授权记录，完成一次授权码流程后会出现。</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding:20px;border:1px solid #334155;text-align:center;color:#94a3b8">暂无授权记录，完成一次授权码流程后会出现。</td></tr>`;
         return;
       }
       for (const g of arr) {
         const tr = document.createElement('tr');
+        const chainBadge = `<span style="display:inline-block;background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">链路 #${g.chain_index || 1}</span>`;
+        const scopeInputId = `g-scope-${g.grant_id.substring(0,8)}`;
+        const scopeCell = g.revoked
+          ? `<span style="font-size:12px;color:#94a3b8">${g.scope}</span>`
+          : `<div style="display:flex;flex-direction:column;gap:4px">
+               <input type="text" id="${scopeInputId}" value="${g.scope}" style="padding:4px 8px;font-size:12px;width:180px">
+               <button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:11px" onclick="narrowGrant('${g.user_id}','${g.client_id}','${scopeInputId}')">✂️ 缩减为此 scope</button>
+             </div>`;
+        const opCell = g.revoked
+          ? `<div style="display:flex;flex-direction:column;gap:6px">
+               <span style="color:#64748b;font-size:12px">${g.revoked_at || ''}</span>
+               <button class="btn btn-success btn-sm" style="padding:3px 10px;font-size:11px" onclick="reauthorizeGrant('${g.user_id}','${g.client_id}', prompt('新授权的 scope 列表 (空格分隔)','openid profile email'))">🔄 重新授权 (新建链路)</button>
+             </div>`
+          : `<div style="display:flex;flex-direction:column;gap:6px">
+               <button class="btn btn-danger btn-sm" onclick="revokeGrant('${g.user_id}','${g.client_id}')">撤销授权</button>
+               <button class="btn btn-success btn-sm" style="padding:3px 10px;font-size:11px" onclick="reauthorizeGrant('${g.user_id}','${g.client_id}', prompt('新授权的 scope 列表 (空格分隔)','openid profile email'))">🔄 重新授权 (新链路)</button>
+             </div>`;
         tr.innerHTML =
+          `<td style="padding:10px;border:1px solid #334155">${chainBadge}</td>` +
           `<td style="padding:10px;border:1px solid #334155">${g.user_name}</td>` +
           `<td style="padding:10px;border:1px solid #334155">${g.client_name}</td>` +
-          `<td style="padding:10px;border:1px solid #334155;font-size:12px;color:#a5b4fc">${g.scope}</td>` +
+          `<td style="padding:10px;border:1px solid #334155;font-size:12px;color:#a5b4fc">${scopeCell}</td>` +
           `<td style="padding:10px;border:1px solid #334155;font-size:12px;color:#94a3b8">${g.created_at}</td>` +
           `<td style="padding:10px;border:1px solid #334155;text-align:center">${g.authorization_count}</td>` +
           `<td style="padding:10px;border:1px solid #334155">${g.revoked
             ? '<span class="status-badge status-inactive">已撤销</span>'
             : '<span class="status-badge status-active">● 有效</span>'}</td>` +
-          `<td style="padding:10px;border:1px solid #334155">${g.revoked
-            ? '<span style="color:#64748b;font-size:12px">' + (g.revoked_at || '') + '</span>'
-            : `<button class="btn btn-danger btn-sm" onclick="revokeGrant('${g.user_id}','${g.client_id}')">撤销授权</button>`}</td>`;
+          `<td style="padding:10px;border:1px solid #334155;vertical-align:top">${opCell}</td>`;
         tbody.appendChild(tr);
       }
     });
@@ -1079,6 +1283,363 @@ function revokeGrant(userId, clientId) {
       alert(`撤销完成。找到授权:${d.found}，吊销 refresh_token 数:${d.tokens_revoked}`);
       refreshGrants();
     });
+}
+
+function narrowGrant(userId, clientId, inputId) {
+  const newScope = document.getElementById(inputId).value;
+  if (!newScope) return alert('scope 不能为空');
+  fetch(ISSUER + '/api/grants/narrow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, client_id: clientId, scope: newScope }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      alert(`scope 缩减完成，最终: ${d.scope}`);
+      refreshGrants();
+    });
+}
+
+function reauthorizeGrant(userId, clientId, newScope) {
+  if (newScope === null) return;
+  fetch(ISSUER + '/api/grants/reauthorize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, client_id: clientId, scope: newScope }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      alert(`重新授权完成，新授权链路 #${d.chain_index}，scope: ${d.scope}`);
+      refreshGrants();
+    });
+}
+
+// ===== PKCE =====
+function b64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+async function computeChallenge(method, verifier) {
+  if (method === 'plain') return verifier;
+  const buf = new TextEncoder().encode(verifier);
+  const dig = await crypto.subtle.digest('SHA-256', buf);
+  return b64url(dig);
+}
+function pkceGenerate() {
+  const bytes = new Uint8Array(48);
+  crypto.getRandomValues(bytes);
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  let v = '';
+  for (let i = 0; i < bytes.length; i++) v += chars[bytes[i] % chars.length];
+  document.getElementById('pkce-verifier').value = v;
+  pkceRecalc();
+}
+async function pkceRecalc() {
+  const v = document.getElementById('pkce-verifier').value.trim();
+  const m = document.getElementById('pkce-method').value;
+  if (!v) return;
+  const c = await computeChallenge(m, v);
+  document.getElementById('pkce-challenge').value = c;
+}
+function onPkceClientChange() {
+  const sel = document.getElementById('pkce-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (opt && opt.dataset.scope) document.getElementById('pkce-scope').value = opt.dataset.scope.split(' ').filter(s => ['openid','profile','email'].includes(s)).join(' ') || 'openid profile';
+  setStep('pkce-step1', 'done'); setStep('pkce-step2', 'current');
+}
+function pkceStartAuth() {
+  const clientId = document.getElementById('pkce-client').value;
+  const v = document.getElementById('pkce-verifier').value.trim();
+  if (!clientId || !v) return alert('请先选择客户端并生成 PKCE code_verifier');
+  const redirectUri = document.getElementById('pkce-redirect').value;
+  const scope = document.getElementById('pkce-scope').value || 'openid profile';
+  const state = document.getElementById('pkce-state').value;
+  const method = document.getElementById('pkce-method').value;
+  const challenge = document.getElementById('pkce-challenge').value;
+  const url = ISSUER + '/authorize?' + new URLSearchParams({
+    client_id: clientId, response_type: 'code', scope, redirect_uri: redirectUri,
+    state, code_challenge: challenge, code_challenge_method: method,
+  });
+  localStorage.setItem('pkce_verifier', v);
+  localStorage.setItem('pkce_client', clientId);
+  localStorage.setItem('pkce_redirect', redirectUri);
+  setStep('pkce-step1', 'done'); setStep('pkce-step2', 'done'); setStep('pkce-step3', 'current');
+  window.open(url, '_blank');
+  const res = document.getElementById('pkce-result');
+  res.innerHTML = '✅ 新标签页已打开授权登录页面，登录并确认后将跳到回调，复制回调的 code 填到右侧的 code 框里用 verifier 换 token。';
+}
+async function pkceExchange(forceWrong) {
+  const code = document.getElementById('pkce-code').value.trim();
+  const clientId = document.getElementById('pkce-client').value || localStorage.getItem('pkce_client');
+  const redirectUri = document.getElementById('pkce-redirect').value || localStorage.getItem('pkce_redirect');
+  let verifier = document.getElementById('pkce-verifier').value.trim() || localStorage.getItem('pkce_verifier');
+  if (!code || !clientId || !verifier) return alert('缺少 code / 客户端 / verifier');
+  if (forceWrong) verifier = 'wrong_' + verifier.substring(0, 30);
+  const method = document.getElementById('pkce-method').value;
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code', code, redirect_uri: redirectUri,
+    client_id: clientId, code_verifier: verifier, code_challenge_method: method,
+  });
+  // confidential 客户端才加 Basic auth
+  const sel = document.getElementById('pkce-client');
+  const opt = sel.options[sel.selectedIndex];
+  const isPublic = opt && opt.dataset.type === 'public';
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  if (!isPublic) {
+    const secret = opt ? (opt.dataset.secret || '') : (TEST_CLIENTS.find(c => c.client_id === clientId)?.client_secret || '');
+    headers['Authorization'] = 'Basic ' + btoa(clientId + ':' + secret);
+  }
+  const r = await fetch(ISSUER + '/token', { method: 'POST', headers, body });
+  const d = await r.json().catch(() => ({}));
+  const out = document.getElementById('pkce-result');
+  const statusLine = `<div style="margin-bottom:8px;color:${r.ok ? '#4ade80' : '#f87171'};font-weight:600">[HTTP ${r.status}] ${r.ok ? '✅ 成功' : '❌ 失败'}</div>`;
+  if (forceWrong) {
+    out.innerHTML = statusLine + `<div style="color:#fcd34d;margin-bottom:8px">🧪 故意用了错误的 verifier，结果如下（应返回 invalid_grant 类错误）：</div>` + JSON.stringify(d, null, 2);
+  } else {
+    out.innerHTML = statusLine + JSON.stringify(d, null, 2);
+    if (r.ok && d.access_token) setStep('pkce-step1', 'done'), setStep('pkce-step2', 'done'), setStep('pkce-step3', 'done');
+  }
+}
+
+// ===== 令牌生命周期 =====
+let _lastLifecycleSnapshot = null;
+async function loadLifecycle() {
+  const r = await fetch(ISSUER + '/api/tokens/lifecycle');
+  const d = await r.json();
+  const tokens = d.refresh_tokens || [];
+  const wrap = document.getElementById('lifecycle-table');
+  if (!tokens.length) {
+    wrap.innerHTML = '<div class="info-box">暂无 refresh_token，先跑一次授权码/刷新流程再回来看。</div>';
+    return;
+  }
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#0f172a">
+      <th style="padding:8px;border:1px solid #334155;text-align:left">Token (片段)</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">Token ID</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">链路 (prev → next)</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">User</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">Client</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">过期时间</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">剩余 TTL</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">轮换</th>
+      <th style="padding:8px;border:1px solid #334155;text-align:left">状态</th>
+    </tr></thead><tbody>`;
+  for (const t of tokens) {
+    const byId = {}; for (const x of tokens) byId[x.token_id] = x;
+    const prev = t.prev_id ? byId[t.prev_id] : null;
+    const next = t.next_id ? byId[t.next_id] : null;
+    const chainHtml = (prev ? '🔗← ' + (prev.token.substring(0, 8) + '...') : '起点') + '<br>' + (next ? '→🔗 ' + (next.token.substring(0, 8) + '...') : '当前末端');
+    html += `<tr>
+      <td style="padding:6px;border:1px solid #334155;font-family:'Cascadia Code',Consolas,monospace;color:#a5b4fc">${t.token}</td>
+      <td style="padding:6px;border:1px solid #334155;font-size:11px;color:#94a3b8">${t.token_id.substring(0, 16)}...</td>
+      <td style="padding:6px;border:1px solid #334155;font-size:11px">${chainHtml}</td>
+      <td style="padding:6px;border:1px solid #334155">${t.user_id || '-'}</td>
+      <td style="padding:6px;border:1px solid #334155">${t.client_id?.substring(0, 16) || '-'}...</td>
+      <td style="padding:6px;border:1px solid #334155;font-size:11px;color:#94a3b8">${t.expires_at}</td>
+      <td style="padding:6px;border:1px solid #334155;text-align:center;color:${t.ttl_seconds > 3600 ? '#4ade80' : (t.ttl_seconds > 0 ? '#fbbf24' : '#f87171')};font-weight:600">${t.ttl_seconds}s</td>
+      <td style="padding:6px;border:1px solid #334155;text-align:center">${t.rotation_count}</td>
+      <td style="padding:6px;border:1px solid #334155;text-align:center">${t.revoked ? '<span class="status-badge status-inactive">已吊销</span>' : (t.active ? '<span class="status-badge status-active">● 有效</span>' : '<span class="status-badge status-inactive">过期</span>')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  if (!_lastLifecycleSnapshot) _lastLifecycleSnapshot = tokens;
+}
+function loadLifecycleDiff() {
+  if (!_lastLifecycleSnapshot) return alert('先点一次"刷新令牌生命周期列表"作为快照基准');
+  fetch(ISSUER + '/api/tokens/lifecycle').then(r => r.json()).then((d) => {
+    const cur = d.refresh_tokens || [];
+    const oldIds = new Set(_lastLifecycleSnapshot.map(t => t.token_id));
+    const newIds = new Set(cur.map(t => t.token_id));
+    const added = cur.filter(t => !oldIds.has(t.token_id));
+    const removed = _lastLifecycleSnapshot.filter(t => !newIds.has(t.token_id));
+    const box = document.getElementById('lifecycle-diff');
+    box.style.display = 'block';
+    box.innerHTML = `
+      <div style="font-weight:600;margin-bottom:6px">🔎 与上次快照的差异</div>
+      <div style="color:#4ade80;margin-bottom:4px">新增 token: ${added.length} 个${added.length ? ' → ' + added.map(t => t.token.substring(0, 10) + '...').join(', ') : ''}</div>
+      <div style="color:#f87171">消失 token: ${removed.length} 个 (已被轮换/撤销/过期清理)${removed.length ? ' → ' + removed.map(t => t.token.substring(0, 10) + '...').join(', ') : ''}</div>
+      <div style="color:#a5b4fc;margin-top:6px;font-size:12px">轮换验证: 每调用一次 refresh，旧 token 应在"消失"里，新 token 在"新增"里，这体现了 refresh token 轮换机制。</div>
+    `;
+    _lastLifecycleSnapshot = cur;
+    loadLifecycle();
+  });
+}
+async function doLifecycleRefresh() {
+  const rt = document.getElementById('lifecycle-refresh-token').value.trim();
+  const auth = document.getElementById('lifecycle-refresh-auth').value.trim();
+  if (!rt || !auth) return alert('需要 refresh_token 和 client_id:client_secret');
+  const [cid, csec] = auth.split(':');
+  const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rt, client_id: cid, client_secret: csec || '' });
+  const r = await fetch(ISSUER + '/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const d = await r.json().catch(() => ({}));
+  const out = document.getElementById('lifecycle-refresh-result');
+  out.innerHTML = `<div style="margin-bottom:6px;color:${r.ok ? '#4ade80' : '#f87171'};font-weight:600">[HTTP ${r.status}]</div>` + JSON.stringify(d, null, 2);
+  if (r.ok) {
+    if (d.refresh_token) document.getElementById('lifecycle-refresh-token').value = d.refresh_token;
+    setTimeout(loadLifecycle, 300);
+  }
+}
+function parseJwt(token) {
+  try {
+    const [h, p, s] = token.split('.');
+    const dec = (s) => JSON.parse(decodeURIComponent(atob(s.replace(/-/g,'+').replace(/_/g,'/')).split('').map(c => '%' + ('00'+c.charCodeAt(0).toString(16)).slice(-2)).join('')));
+    return { header: dec(h), payload: dec(p), signature: s };
+  } catch (e) { return null; }
+}
+function fmtTime(s) {
+  if (!s) return '-';
+  return new Date(s * 1000).toISOString();
+}
+function inspectJwtLifecycle() {
+  const tok = document.getElementById('lifecycle-jwt').value.trim();
+  if (!tok) return;
+  const d = parseJwt(tok);
+  if (!d) { document.getElementById('lifecycle-jwt-result').innerHTML = '<div class="card"><h3>❌</h3>不是合法 JWT 格式</div>'; return; }
+  const now = Math.floor(Date.now() / 1000);
+  const { iat, exp, nbf, scope, sub, aud, client_id, typ, token_use } = d.payload;
+  const left = exp ? Math.max(0, exp - now) : null;
+  const typeLabel = (typ || token_use || (scope ? 'access_token' : (aud ? 'id_token' : 'unknown')));
+  document.getElementById('lifecycle-jwt-result').innerHTML = `
+    <div class="card">
+      <h3>📌 Header</h3><div class="result-box" style="min-height:60px">${JSON.stringify(d.header, null, 2)}</div>
+    </div>
+    <div class="card">
+      <h3>📌 Payload</h3><div class="result-box" style="min-height:60px">${JSON.stringify(d.payload, null, 2)}</div>
+    </div>
+    <div class="card">
+      <h3>⏱️ 生命周期信息</h3>
+      <div style="font-size:13px;line-height:1.9">
+        <div>🔑 令牌类型推断: <strong>${typeLabel}</strong></div>
+        <div>🆔 sub: <strong>${sub || '-'}</strong></div>
+        <div>👤 client_id: <strong>${client_id || d.payload['client_id'] || '-'}</strong></div>
+        <div>🎯 aud (audience): <strong>${Array.isArray(aud) ? aud.join(', ') : (aud || '-')}</strong></div>
+        <div>📅 签发时间: ${fmtTime(iat)}</div>
+        <div>📅 生效开始: ${fmtTime(nbf)}</div>
+        <div>📅 过期时间: <strong style="color:${exp && now > exp ? '#f87171' : (left !== null && left < 300 ? '#fbbf24' : '#4ade80')}">${fmtTime(exp)}</strong></div>
+        <div>⏳ 剩余时间: <strong>${left !== null ? left + 's (' + Math.floor(left/60) + '分' + (left%60) + '秒)' : '-'}</strong> ${exp && now > exp ? '<span class="status-badge status-inactive">已过期</span>' : ''}</div>
+        <div>🎛️ scope: <code style="color:#a5b4fc">${scope || '-'}</code></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>✒️ 签名</h3><div class="result-box" style="min-height:40px;word-break:break-all;font-size:11px;color:#94a3b8">${d.signature.substring(0, 64)}... (长度 ${d.signature.length})</div>
+    </div>
+  `;
+}
+
+// ===== JWT 验签工具 =====
+async function verifyJwt() {
+  const tok = document.getElementById('verify-jwt').value.trim();
+  if (!tok) return;
+  const r = await fetch(ISSUER + '/api/verify-jwt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: tok }) });
+  const d = await r.json();
+  if (!d.ok) {
+    document.getElementById('verify-result').innerHTML = `<div style="color:#f87171;font-weight:600">❌ ${d.error}</div>`; return;
+  }
+  document.getElementById('verify-header').innerHTML =
+    `<div style="margin-bottom:8px"><span class="status-badge" style="background:rgba(99,102,241,.15);color:#a5b4fc">alg: ${d.header.alg || '-'}</span> <span class="status-badge" style="background:rgba(59,130,246,.15);color:#60a5fa">kid: ${d.header.kid || '-'}</span></div>`
+    + JSON.stringify(d.header, null, 2);
+  const keys = Object.entries(d.payload || {}).map(([k, v]) => {
+    const isTime = ['iat','exp','nbf','auth_time'].includes(k);
+    const isSens = k === 'password_hash' || k.includes('secret');
+    return `<div style="padding:4px 0;border-bottom:1px dashed #334155"><strong style="color:#818cf8">${k}</strong>: <span style="color:#e2e8f0">${isSens ? '***' : (isTime ? JSON.stringify(v) + ' → ' + new Date(v * 1000).toISOString() : JSON.stringify(v))}</span></div>`;
+  }).join('');
+  document.getElementById('verify-payload').innerHTML = keys || '<span style="color:#64748b">(空 payload)</span>';
+  const sigBox = document.getElementById('verify-result');
+  const kidMatch = d.matched_kid ? `<span style="color:#4ade80">✅ kid=${d.matched_kid} 在 JWKS 中找到对应 key</span>` : `<span style="color:#fbbf24">⚠️ token header 中没有 kid</span>`;
+  const sigValid = d.signature_valid
+    ? '<span class="status-badge status-active" style="font-size:14px;padding:6px 16px">✅ 签名验证通过 (RS256)</span>'
+    : `<span class="status-badge status-inactive" style="font-size:14px;padding:6px 16px">❌ 签名验证失败</span><div style="color:#fcd34d;margin-top:8px;font-size:12px">原因: ${d.verify_error || '未知'}</div>`;
+  const tm = d.timing || {};
+  sigBox.innerHTML = `
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      ${sigValid}
+      ${kidMatch}
+      <span class="status-badge" style="background:rgba(34,197,94,.15);color:#4ade80">matched_jwk: ${d.matched_jwk_exists ? 'YES' : 'NO'}</span>
+    </div>
+    <div style="font-size:13px;line-height:2">
+      <div>📅 签发时间: ${tm.issued_at || '-'}</div>
+      <div>📅 过期时间: <strong style="color:${tm.expired ? '#f87171' : '#4ade80'}">${tm.expires_at || '-'}</strong> ${tm.expired ? '<span class="status-badge status-inactive">已过期</span>' : (tm.expires_in !== null ? `<span class="status-badge status-active">剩余 ${tm.expires_in}s</span>` : '')}</div>
+      <div>📅 Not Before: ${tm.not_before || '-'}</div>
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #334155;font-size:12px;color:#94a3b8">签名: <code style="word-break:break-all">${d.signature?.substring(0, 60) || ''}...</code> (长度 ${(d.signature||'').length})</div>
+  `;
+}
+async function loadJwksInVerify() {
+  const r = await fetch(ISSUER + '/.well-known/jwks.json');
+  const d = await r.json();
+  const box = document.getElementById('verify-jwks');
+  box.style.display = 'block';
+  box.textContent = JSON.stringify(d, null, 2);
+}
+
+// ===== 客户端导入/导出 & 本地保存 =====
+async function exportClients() {
+  const r = await fetch(ISSUER + '/api/clients/export');
+  const d = await r.json();
+  document.getElementById('cm-import-text').style.display = 'block';
+  document.getElementById('cm-import-content').value = JSON.stringify(d, null, 2);
+  try { localStorage.setItem('lab_clients_backup', JSON.stringify(d)); } catch (e) {}
+  alert('已导出，JSON 已写入导入文本框并保存到浏览器 localStorage (lab_clients_backup)。');
+}
+async function importClients() {
+  const txt = document.getElementById('cm-import-content').value.trim();
+  if (!txt) return alert('导入文本框为空');
+  let parsed;
+  try { parsed = JSON.parse(txt); } catch (e) { return alert('JSON 解析失败: ' + e.message); }
+  const arr = Array.isArray(parsed) ? parsed : (parsed.clients || []);
+  const r = await fetch(ISSUER + '/api/clients/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
+  const d = await r.json();
+  alert(`导入完成，注册了 ${d.imported} 个客户端`);
+  await refreshClients();
+  refreshAllClientSelects();
+}
+async function saveClientsToLocal() {
+  const r = await fetch(ISSUER + '/api/clients/export');
+  const d = await r.json();
+  try { localStorage.setItem('lab_clients_backup', JSON.stringify(d)); } catch (e) { return alert('localStorage 不可用'); }
+  alert('当前服务端客户端配置已保存到浏览器本地 localStorage。');
+}
+async function restoreClientsFromLocal() {
+  let s; try { s = localStorage.getItem('lab_clients_backup'); } catch (e) {}
+  if (!s) return alert('本地没有保存的配置，先点"📤 导出 JSON"或"仅保存到浏览器本地"。');
+  document.getElementById('cm-import-text').style.display = 'block';
+  document.getElementById('cm-import-content').value = s;
+  let d; try { d = JSON.parse(s); } catch (e) { return alert('本地 JSON 损坏'); }
+  const arr = Array.isArray(d) ? d : (d.clients || []);
+  if (!confirm(`从本地恢复 ${arr.length} 个客户端到服务端？(服务端已有的同名不会覆盖，会新建 client_id 不同的一份)`)) return;
+  const r = await fetch(ISSUER + '/api/clients/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arr) });
+  const rd = await r.json();
+  alert(`恢复完成，注册了 ${rd.imported} 个客户端`);
+  await refreshClients();
+  refreshAllClientSelects();
+}
+
+// ===== 快速填入 PKCE select 的新客户端刷新 (扩充原 refreshAllClientSelects) =====
+const _oldRefreshAllClientSelects = typeof refreshAllClientSelects === 'function' ? refreshAllClientSelects : null;
+if (_oldRefreshAllClientSelects) {
+  refreshAllClientSelects = async function(...args) {
+    await _oldRefreshAllClientSelects(...args);
+    // 扩充刷新 PKCE select
+    const sel = document.getElementById('pkce-client');
+    if (!sel) return;
+    const curVal = sel.value;
+    const d = await fetch(ISSUER + '/api/clients').then(r => r.json());
+    sel.innerHTML = '<option value="">-- 请选择 --</option>';
+    for (const c of d.test_clients) {
+      if (!c.grant_types.includes('authorization_code')) continue;
+      const o = document.createElement('option');
+      o.value = c.client_id;
+      o.dataset.secret = c.client_secret || '';
+      o.dataset.type = c.type;
+      o.dataset.scope = c.scope;
+      o.textContent = `${c.name} (${c.type})`;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === curVal)) sel.value = curVal;
+  };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
