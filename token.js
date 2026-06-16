@@ -130,8 +130,42 @@ function handleAuthorizationCode(req, res, client) {
 function handleClientCredentials(req, res, client) {
   const { scope } = req.body;
 
-  const validScopes = clients.validateScope(client, scope, config.scopes);
-  const finalScopes = validScopes.length > 0 ? validScopes : clients.parseScope(client.scope);
+  const clientScopes = clients.parseScope(client.scope);
+  const availableScopes = config.scopes;
+
+  if (scope) {
+    const requestedScopes = clients.parseScope(scope);
+    const invalidScopes = requestedScopes.filter(
+      (s) => !clientScopes.includes(s) || !availableScopes[s]
+    );
+
+    if (invalidScopes.length > 0) {
+      return sendTokenError(
+        res,
+        'invalid_scope',
+        `Invalid scope(s): ${invalidScopes.join(', ')}. Requested scope not in client allowed scope or not supported by server.`,
+        400
+      );
+    }
+
+    const finalScopes = requestedScopes;
+
+    const accessToken = tokenService.generateAccessToken({
+      clientId: client.clientId,
+      scope: finalScopes,
+    });
+
+    const response = {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: config.tokens.accessToken.expiresIn,
+      scope: finalScopes.join(' '),
+    };
+
+    return res.json(response);
+  }
+
+  const finalScopes = clientScopes;
 
   const accessToken = tokenService.generateAccessToken({
     clientId: client.clientId,

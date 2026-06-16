@@ -6,6 +6,7 @@ const config = require('./config');
 const authorizationCodes = new Map();
 const refreshTokens = new Map();
 const revokedTokens = new Set();
+const revokedRefreshTokenIds = new Set();
 const refreshTokenChains = new Map();
 
 function generateAuthorizationCode({
@@ -183,6 +184,11 @@ function validateRefreshToken(token, clientId) {
     return { valid: false, error: 'invalid_grant', errorDescription: 'Invalid refresh token' };
   }
 
+  if (revokedRefreshTokenIds.has(tokenData.tokenId)) {
+    refreshTokens.delete(token);
+    return { valid: false, error: 'invalid_grant', errorDescription: 'Refresh token has been revoked' };
+  }
+
   if (tokenData.expiresAt < Date.now()) {
     refreshTokens.delete(token);
     return { valid: false, error: 'invalid_grant', errorDescription: 'Refresh token has expired' };
@@ -229,6 +235,8 @@ function revokeRefreshTokenChain(tokenId) {
     if (visited.has(current)) continue;
     visited.add(current);
 
+    revokedRefreshTokenIds.add(current);
+
     for (const [token, data] of refreshTokens) {
       if (data.tokenId === current || data.previousTokenId === current) {
         refreshTokens.delete(token);
@@ -248,12 +256,21 @@ function revokeRefreshTokenChain(tokenId) {
   }
 }
 
+function normalizeTokenType(type) {
+  if (!type) return 'access';
+  const lowerType = type.toLowerCase();
+  if (lowerType === 'access' || lowerType === 'access_token') return 'access';
+  if (lowerType === 'refresh' || lowerType === 'refresh_token') return 'refresh';
+  return 'access';
+}
+
 function revokeToken(token, type = 'access') {
-  if (type === 'access') {
+  const normalizedType = normalizeTokenType(type);
+  if (normalizedType === 'access') {
     revokedTokens.add(token);
     return true;
   }
-  if (type === 'refresh') {
+  if (normalizedType === 'refresh') {
     const tokenData = refreshTokens.get(token);
     if (tokenData) {
       revokeRefreshTokenChain(tokenData.tokenId);
@@ -264,10 +281,13 @@ function revokeToken(token, type = 'access') {
 }
 
 function introspectToken(token, tokenTypeHint = null) {
-  if (tokenTypeHint === 'refresh' || !tokenTypeHint) {
+  const normalizedHint = tokenTypeHint ? normalizeTokenType(tokenTypeHint) : null;
+
+  if (normalizedHint === 'refresh' || !normalizedHint) {
     const refreshData = refreshTokens.get(token);
     if (refreshData) {
-      const active = refreshData.expiresAt >= Date.now() && !refreshData.rotated;
+      const revoked = revokedRefreshTokenIds.has(refreshData.tokenId);
+      const active = !revoked && refreshData.expiresAt >= Date.now() && !refreshData.rotated;
       return {
         active,
         scope: Array.isArray(refreshData.scope) ? refreshData.scope.join(' ') : refreshData.scope,
@@ -280,7 +300,7 @@ function introspectToken(token, tokenTypeHint = null) {
     }
   }
 
-  if (tokenTypeHint === 'access' || !tokenTypeHint) {
+  if (normalizedHint === 'access' || !normalizedHint) {
     const result = verifyAccessToken(token);
     if (result.valid) {
       return {

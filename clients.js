@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
 const clients = new Map();
+const testClientSecrets = new Map();
 
 function hashSecret(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex');
@@ -50,6 +51,9 @@ function registerClient({
   };
 
   clients.set(clientId, client);
+  if (clientSecret) {
+    testClientSecrets.set(clientId, clientSecret);
+  }
 
   return {
     clientId,
@@ -60,6 +64,21 @@ function registerClient({
 
 function getClientById(clientId) {
   return clients.get(clientId) || null;
+}
+
+function getAllClients() {
+  const result = [];
+  for (const [clientId, client] of clients) {
+    result.push({
+      ...client,
+      clientSecret: testClientSecrets.get(clientId) || null,
+    });
+  }
+  return result;
+}
+
+function getClientSecret(clientId) {
+  return testClientSecrets.get(clientId) || null;
 }
 
 function validateClientCredentials(clientId, clientSecret) {
@@ -85,9 +104,7 @@ function validateClientCredentials(clientId, clientSecret) {
 
 function validateRedirectUri(client, redirectUri) {
   if (!client || !redirectUri) return false;
-  return client.redirectUris.some(
-    (uri) => uri === redirectUri || uri.startsWith(redirectUri + '/')
-  );
+  return client.redirectUris.some((uri) => uri === redirectUri);
 }
 
 function validateGrantType(client, grantType) {
@@ -146,6 +163,8 @@ registerClient({
 module.exports = {
   registerClient,
   getClientById,
+  getAllClients,
+  getClientSecret,
   validateClientCredentials,
   validateRedirectUri,
   validateGrantType,

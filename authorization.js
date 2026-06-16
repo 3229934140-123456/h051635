@@ -33,17 +33,10 @@ function sendError(redirectUri, error, errorDescription, state, responseMode) {
   return buildRedirectUri(redirectUri, params, false);
 }
 
-router.get('/authorize', auth.requireAuth, (req, res) => {
+router.get('/authorize', (req, res, next) => {
   const {
-    response_type,
     client_id,
     redirect_uri,
-    scope,
-    state,
-    nonce,
-    code_challenge,
-    code_challenge_method,
-    response_mode,
   } = req.query;
 
   if (!client_id) {
@@ -62,6 +55,22 @@ router.get('/authorize', auth.requireAuth, (req, res) => {
   if (!clients.validateRedirectUri(client, redirect_uri)) {
     return res.status(400).json({ error: 'invalid_request', error_description: 'Invalid redirect_uri' });
   }
+
+  next();
+}, auth.requireAuth, (req, res) => {
+  const {
+    response_type,
+    client_id,
+    redirect_uri,
+    scope,
+    state,
+    nonce,
+    code_challenge,
+    code_challenge_method,
+    response_mode,
+  } = req.query;
+
+  const client = clients.getClientById(client_id);
 
   if (!response_type) {
     const errorUrl = sendError(redirect_uri, 'invalid_request', 'response_type is required', state, response_mode);
