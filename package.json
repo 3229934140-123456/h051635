@@ -1,0 +1,21 @@
+{
+  "name": "oauth2-oidc-provider",
+  "version": "1.0.0",
+  "description": "OAuth2 and OpenID Connect Authorization Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["oauth2", "oidc", "openid-connect", "authorization-server", "jwt"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.1",
+    "body-parser": "^1.20.2",
+    "cookie-parser": "^1.4.6",
+    "ejs": "^3.1.9"
+  }
+}
