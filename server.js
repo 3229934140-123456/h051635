@@ -38,47 +38,46 @@ app.get('/', (req, res) => {
     { username: 'bob', password: 'password456', name: 'Bob Li' },
   ];
 
-  const testAuthorizationUrl = (client) => {
-    if (!client.grant_types.includes('authorization_code')) return null;
-    const redirectUri = encodeURIComponent(client.redirect_uris[0] || '');
-    const scope = encodeURIComponent('openid profile email read');
-    const state = encodeURIComponent('test-state-12345');
-    return `${config.server.issuer}/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
-  };
+  const scopes = Object.entries(config.scopes).map(([key, desc]) => ({ key, desc }));
+  const issuer = config.server.issuer;
 
-  const testClientCredentialsUrl = (client) => {
-    if (!client.grant_types.includes('client_credentials')) return null;
-    return `curl -X POST ${config.server.issuer}/token \\
-  -H "Content-Type: application/x-www-form-urlencoded" \\
-  -u "${client.client_id}:${client.client_secret}" \\
-  -d "grant_type=client_credentials&scope=read write"`;
-  };
+  res.render('index', {
+    testClients,
+    testUsers,
+    scopes,
+    issuer,
+    idTokenSecret: config.tokens.idToken.secret,
+    accessTokenSecret: config.tokens.accessToken.secret,
+  });
+});
 
+app.get('/api/clients', (req, res) => {
+  const allClients = clients.getAllClients();
   res.json({
-    name: 'OAuth2 / OIDC Authorization Server',
-    version: '1.0.0',
-    endpoints: {
-      authorization: `${config.server.issuer}/authorize`,
-      token: `${config.server.issuer}/token`,
-      revoke: `${config.server.issuer}/revoke`,
-      introspect: `${config.server.issuer}/introspect`,
-      userinfo: `${config.server.issuer}/userinfo`,
-      discovery: `${config.server.issuer}/.well-known/openid-configuration`,
-      jwks: `${config.server.issuer}/.well-known/jwks.json`,
-      login: `${config.server.issuer}/login`,
-    },
-    test_clients: testClients.map((c) => ({
-      ...c,
-      test_authorization_url: testAuthorizationUrl(c),
-      test_client_credentials_curl: testClientCredentialsUrl(c),
+    test_clients: allClients.map((client) => ({
+      name: client.name,
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      type: client.type,
+      grant_types: client.grantTypes,
+      scope: client.scope,
+      redirect_uris: client.redirectUris,
     })),
-    test_users: testUsers,
-    flows_supported: [
-      'Authorization Code Flow (with PKCE)',
-      'Client Credentials Flow',
-      'Refresh Token Flow (with Rotation)',
-      'OpenID Connect (ID Token + UserInfo)',
+    test_users: [
+      { username: 'alice', password: 'password123', name: 'Alice Wang' },
+      { username: 'bob', password: 'password456', name: 'Bob Li' },
     ],
+  });
+});
+
+app.get('/test/callback', (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  res.render('callback', {
+    code: code || null,
+    state: state || null,
+    error: error || null,
+    errorDescription: error_description || null,
   });
 });
 

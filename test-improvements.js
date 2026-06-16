@@ -35,19 +35,19 @@ function fail(msg) {
 }
 
 async function getHomepageClients() {
-  const homepage = await httpRequest({
+  const resp = await httpRequest({
     hostname: 'localhost',
     port: 3000,
-    path: '/',
+    path: '/api/clients',
     method: 'GET',
   });
-  if (!homepage.body || !homepage.body.test_clients) {
-    throw new Error('无法从首页获取客户端信息');
+  if (!resp.body || !resp.body.test_clients) {
+    throw new Error('无法从 API 获取客户端信息');
   }
   return {
-    webApp: homepage.body.test_clients.find(c => c.name === 'Test Web App'),
-    service: homepage.body.test_clients.find(c => c.name === 'Test Service'),
-    public: homepage.body.test_clients.find(c => c.name === 'Test Public App'),
+    webApp: resp.body.test_clients.find(c => c.name === 'Test Web App'),
+    service: resp.body.test_clients.find(c => c.name === 'Test Service'),
+    public: resp.body.test_clients.find(c => c.name === 'Test Public App'),
   };
 }
 
@@ -65,16 +65,16 @@ async function runTests() {
   let allPassed = true;
 
   try {
-    console.log('【测试1】首页显示真实 client_id 和 client_secret');
+    console.log('【测试1】API 端点返回真实 client_id 和 client_secret');
     console.log('-'.repeat(70));
     for (const c of [serverClients.webApp, serverClients.public, serverClients.service]) {
       console.log(`  ${c.name}:`);
       console.log(`     client_id: ${c.client_id ? '✅ 已显示' : '❌ 缺失'}`);
       console.log(`     client_secret: ${c.client_secret ? '✅ 已显示' : (c.type === 'public' ? 'ℹ️  public客户端无secret (正常)' : '❌ 缺失')}`);
-      console.log(`     测试授权URL: ${c.test_authorization_url ? '✅ 已生成' : '➖ 无需'}`);
-      console.log(`     测试客户端凭证curl: ${c.test_client_credentials_curl ? '✅ 已生成' : '➖ 无需'}`);
+      console.log(`     grant_types: ${c.grant_types.join(', ')}`);
+      console.log(`     redirect_uris: ${c.redirect_uris.join(', ') || '(无)'}`);
     }
-    pass('首页正确显示所有测试客户端信息');
+    pass('API 端点正确返回所有测试客户端信息');
     console.log('');
 
     console.log('【测试2】redirect_uri 严格匹配测试 (函数级)');

@@ -135,7 +135,7 @@ function validateScope(client, requestedScopes, availableScopes) {
 
 registerClient({
   name: 'Test Web App',
-  redirectUris: ['http://localhost:3001/callback'],
+  redirectUris: ['http://localhost:3001/callback', 'http://localhost:3000/test/callback'],
   grantTypes: ['authorization_code', 'refresh_token'],
   responseTypes: ['code'],
   scope: 'openid profile email read write',
@@ -144,7 +144,7 @@ registerClient({
 
 registerClient({
   name: 'Test Public App',
-  redirectUris: ['http://localhost:3002/callback'],
+  redirectUris: ['http://localhost:3002/callback', 'http://localhost:3000/test/callback'],
   grantTypes: ['authorization_code', 'refresh_token'],
   responseTypes: ['code'],
   scope: 'openid profile email read',

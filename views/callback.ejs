@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>授权回调 - OAuth2 Server</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#6366f1;--success:#22c55e;--error:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.container{background:var(--card);border:1px solid var(--border);border-radius:16px;max-width:560px;width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.header{padding:28px 30px;text-align:center}
+.header.success{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.header.error{background:linear-gradient(135deg,#ef4444,#dc2626)}
+.header h1{font-size:22px;color:#fff;margin-bottom:4px}
+.header p{color:rgba(255,255,255,.85);font-size:14px}
+.content{padding:28px 30px}
+.field{margin-bottom:20px}
+.field label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+.field .value{background:#0f172a;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:'Cascadia Code',Consolas,monospace;font-size:13px;word-break:break-all;color:#a5b4fc;position:relative;cursor:pointer;transition:border-color .2s}
+.field .value:hover{border-color:var(--accent)}
+.field .value .copy-hint{position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted);font-family:-apple-system,sans-serif}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;text-align:center;text-decoration:none}
+.btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(99,102,241,.4)}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted);margin-top:10px}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.error-detail{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:14px;color:#fca5a5;font-size:14px}
+</style>
+</head>
+<body>
+<div class="container">
+  <% if (error) { %>
+    <div class="header error">
+      <h1>授权失败</h1>
+      <p>授权请求被拒绝或发生错误</p>
+    </div>
+    <div class="content">
+      <div class="error-detail">
+        <strong><%= error %></strong>
+        <% if (errorDescription) { %><br><%= errorDescription %><% } %>
+      </div>
+      <a href="/" class="btn btn-outline">返回测试控制台</a>
+    </div>
+  <% } else if (code) { %>
+    <div class="header success">
+      <h1>授权成功</h1>
+      <p>已获取授权码，请复制到测试控制台换令牌</p>
+    </div>
+    <div class="content">
+      <div class="field">
+        <label>Authorization Code</label>
+        <div class="value" id="auth-code" onclick="copyCode()">
+          <%= code %>
+          <span class="copy-hint">点击复制</span>
+        </div>
+      </div>
+      <% if (state) { %>
+        <div class="field">
+          <label>State</label>
+          <div class="value"><%= state %></div>
+        </div>
+      <% } %>
+      <a href="/?code=<%= encodeURIComponent(code) %>" class="btn btn-primary">返回控制台并填入授权码</a>
+      <a href="/" class="btn btn-outline">返回控制台首页</a>
+    </div>
+  <% } else { %>
+    <div class="header error">
+      <h1>回调异常</h1>
+      <p>未收到授权码或错误信息</p>
+    </div>
+    <div class="content">
+      <a href="/" class="btn btn-outline">返回测试控制台</a>
+    </div>
+  <% } %>
+</div>
+
+<script>
+function copyCode() {
+  const el = document.getElementById('auth-code');
+  if (!el) return;
+  const text = el.childNodes[0].textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const hint = el.querySelector('.copy-hint');
+    if (hint) { hint.textContent = '已复制!'; setTimeout(() => hint.textContent = '点击复制', 1500); }
+  });
+}
+</script>
+</body>
+</html>

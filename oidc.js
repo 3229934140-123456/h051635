@@ -176,9 +176,35 @@ router.get('/.well-known/openid-configuration', (req, res) => {
 });
 
 router.get('/.well-known/jwks.json', (req, res) => {
-  res.json({
-    keys: [],
-  });
+  const idTokenSecret = config.tokens.idToken.secret;
+  const accessTokenSecret = config.tokens.accessToken.secret;
+
+  function toBase64Url(str) {
+    return Buffer.from(str, 'utf-8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+  }
+
+  const keys = [
+    {
+      kty: 'oct',
+      use: 'sig',
+      alg: 'HS256',
+      kid: 'id-token-hs256',
+      k: toBase64Url(idTokenSecret),
+    },
+    {
+      kty: 'oct',
+      use: 'sig',
+      alg: 'HS256',
+      kid: 'access-token-hs256',
+      k: toBase64Url(accessTokenSecret),
+    },
+  ];
+
+  res.json({ keys });
 });
 
 module.exports = {

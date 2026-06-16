@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OAuth2 / OIDC 测试控制台</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#6366f1;--accent2:#8b5cf6;--success:#22c55e;--error:#ef4444;--warn:#f59e0b;--info:#3b82f6}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
+.header{background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:20px 30px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.header h1{font-size:20px;font-weight:700;color:#fff}
+.header .badge{background:rgba(255,255,255,.2);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px}
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{padding:12px 24px;cursor:pointer;font-size:14px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap}
+.tab:hover{color:var(--text);background:rgba(99,102,241,.05)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.panel{display:none;padding:24px;max-width:1200px;margin:0 auto}
+.panel.active{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.card h3{font-size:16px;font-weight:600;margin-bottom:16px;color:#fff;display:flex;align-items:center;gap:8px}
+.card h3 .icon{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.col{flex:1;min-width:280px}
+label{display:block;font-size:13px;font-weight:500;color:var(--muted);margin-bottom:6px}
+select,input[type=text],input[type=password],textarea{width:100%;padding:10px 14px;background:#0f172a;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s}
+select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+textarea{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;resize:vertical;min-height:80px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;color:#fff}
+.btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(99,102,241,.4)}
+.btn-success{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.btn-danger{background:linear-gradient(135deg,#ef4444,#dc2626)}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-sm{padding:6px 14px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.scope-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.scope-chip{display:flex;align-items:center;gap:6px;padding:6px 12px;background:#0f172a;border:1px solid var(--border);border-radius:20px;font-size:13px;cursor:pointer;transition:all .2s;user-select:none}
+.scope-chip:hover{border-color:var(--accent)}
+.scope-chip.selected{background:rgba(99,102,241,.2);border-color:var(--accent);color:#a5b4fc}
+.scope-chip input{display:none}
+.result-box{background:#0f172a;border:1px solid var(--border);border-radius:8px;padding:16px;max-height:400px;overflow:auto;font-family:'Cascadia Code',Consolas,monospace;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+.token-display{background:#0f172a;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;position:relative}
+.token-display .token-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px}
+.token-display .token-value{font-family:'Cascadia Code',Consolas,monospace;font-size:12px;word-break:break-all;color:#a5b4fc;cursor:pointer;padding-right:36px}
+.token-display .copy-btn{position:absolute;top:8px;right:8px;background:rgba(99,102,241,.2);border:1px solid var(--accent);color:var(--accent);padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+.token-display .copy-btn:hover{background:rgba(99,102,241,.4)}
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:600}
+.status-active{background:rgba(34,197,94,.15);color:#4ade80}
+.status-inactive{background:rgba(239,68,68,.15);color:#f87171}
+.step-indicator{display:flex;gap:4px;margin-bottom:20px}
+.step{flex:1;height:4px;background:var(--border);border-radius:2px;transition:background .3s}
+.step.done{background:var(--success)}
+.step.current{background:var(--accent)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:768px){.grid-2{grid-template-columns:1fr}}
+.code-block{background:#0f172a;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'Cascadia Code',Consolas,monospace;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre;color:#a5b4fc}
+.code-block .kw{color:#c084fc}.code-block .str{color:#4ade80}.code-block .cmt{color:#64748b}.code-block .fn{color:#60a5fa}.code-block .num{color:#fb923c}
+.info-box{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px 16px;font-size:13px;color:#93c5fd;margin-bottom:16px}
+.warn-box{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:12px 16px;font-size:13px;color:#fcd34d;margin-bottom:16px}
+.form-group{margin-bottom:16px}
+.endpoint-list{display:grid;gap:8px}
+.endpoint-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0f172a;border-radius:8px;border:1px solid var(--border)}
+.endpoint-item .method{font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;min-width:50px;text-align:center}
+.endpoint-item .method.get{background:#22c55e}
+.endpoint-item .method.post{background:#3b82f6}
+.endpoint-item .url{font-family:'Cascadia Code',Consolas,monospace;font-size:13px;color:#a5b4fc}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OAuth2 / OIDC 测试控制台</h1>
+  <span class="badge"><%= issuer %></span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="auth-code">授权码流程</div>
+  <div class="tab" data-tab="client-creds">客户端凭证</div>
+  <div class="tab" data-tab="token-debug">令牌调试</div>
+  <div class="tab" data-tab="discovery">发现 & JWKS</div>
+</div>
+
+<!-- ========== 授权码流程 ========== -->
+<div class="panel active" id="panel-auth-code">
+  <div class="step-indicator">
+    <div class="step current" id="step1"></div>
+    <div class="step" id="step2"></div>
+    <div class="step" id="step3"></div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(99,102,241,.2);color:#818cf8">1</span> 选择客户端与权限</h3>
+        <div class="form-group">
+          <label>客户端</label>
+          <select id="ac-client" onchange="onClientChange()">
+            <option value="">-- 请选择 --</option>
+            <% testClients.forEach(function(c) { %>
+              <% if (c.grant_types.includes('authorization_code')) { %>
+                <option value="<%= c.client_id %>" data-secret="<%= c.client_secret || '' %>" data-type="<%= c.type %>" data-scope="<%= c.scope %>"><%= c.name %> (<%= c.type %>)</option>
+              <% } %>
+            <% }); %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>测试用户</label>
+          <select id="ac-user">
+            <% testUsers.forEach(function(u) { %>
+              <option value="<%= u.username %>"><%= u.name %> (<%= u.username %>)</option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>权限范围 (Scope)</label>
+          <div class="scope-grid" id="ac-scopes">
+            <% scopes.forEach(function(s) { %>
+              <label class="scope-chip<%= (s.key === 'openid' || s.key === 'profile') ? ' selected' : '' %>">
+                <input type="checkbox" value="<%= s.key %>" <%= (s.key === 'openid' || s.key === 'profile') ? 'checked' : '' %>>
+                <%= s.key %>
+              </label>
+            <% }); %>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>State (防 CSRF)</label>
+          <input type="text" id="ac-state" value="test-state-<%= Math.random().toString(36).substring(2,8) %>">
+        </div>
+        <button class="btn btn-primary" id="ac-start-btn" onclick="startAuthCode()">发起授权请求</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <h3><span class="icon" style="background:rgba(34,197,94,.2);color:#4ade80">2</span> 授权码</h3>
+        <div class="info-box" id="ac-code-info" style="display:none">授权成功后回调将自动显示授权码</div>
+        <div class="form-group">
+          <label>Authorization Code</label>
+          <input type="text" id="ac-code" placeholder="授权码将在此显示，也可手动粘贴">
+        </div>
+        <div class="form-group">
+          <label>Redirect URI (必须与授权请求一致)</label>
+          <input type="text" id="ac-redirect-uri" value="<%= issuer %>/test/callback">
+        </div>
+        <div class="form-group">
+          <label>PKCE Code Verifier (公共客户端自动生成)</label>
+          <input type="text" id="ac-code-verifier" placeholder="如使用 PKCE 则填写">
+        </div>
+        <button class="btn btn-success" id="ac-exchange-btn" onclick="exchangeCode()">用授权码换令牌</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="ac-result-card" style="display:none">
+    <h3><span class="icon" style="background:rgba(139,92,246,.2);color:#a78bfa">3</span> 令牌结果</h3>
+    <div id="ac-token-results"></div>
+  </div>
+</div>
+
+<!-- ========== 客户端凭证 ========== -->
+<div class="panel" id="panel-client-creds">
+  <div class="grid-2">
+    <div class="card">
+      <h3><span class="icon" style="background:rgba(59,130,246,.2);color:#60a5fa">1</span> 客户端凭证流程</h3>
+      <div class="warn-box">客户端凭证流程不涉及用户，仅用于服务间通信。请求的 scope 必须在客户端允许范围内，否则返回 invalid_scope。</div>
+      <div class="form-group">
+        <label>客户端</label>
+        <select id="cc-client" onchange="onCCClientChange()">
+          <option value="">-- 请选择 --</option>
+          <% testClients.forEach(function(c) { %>
+            <% if (c.grant_types.includes('client_credentials')) { %>
+              <option value="<%= c.client_id %>" data-secret="<%= c.client_secret || '' %>" data-scope="<%= c.scope %>"><%= c.name %></option>
+            <% } %>
+          <% }); %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Scope</label>
+        <input type="text" id="cc-scope" placeholder="如: read write">
+      </div>
+      <button class="btn btn-primary" onclick="getClientCredentials()">获取令牌</button>
+    </div>
+
+    <div class="card">
+      <h3>结果</h3>
+      <div id="cc-result" class="result-box" style="min-height:120px">选择客户端后点击获取令牌</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 令牌调试 ========== -->
+<div class="panel" id="panel-token-debug">
+  <div class="grid-2">
+    <div class="card">
+      <h3>令牌内省 (Introspect)</h3>
+      <div class="form-group">
+        <label>Token</label>
+        <textarea id="td-introspect-token" placeholder="粘贴 access_token 或 refresh_token"></textarea>
+      </div>
+      <div class="form-group">
+        <label>token_type_hint</label>
+        <select id="td-introspect-hint">
+          <option value="">自动检测</option>
+          <option value="access_token">access_token</option>
+          <option value="refresh_token">refresh_token</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>客户端认证 (client_id:client_secret)</label>
+        <input type="text" id="td-introspect-client" placeholder="client_id:client_secret">
+      </div>
+      <button class="btn btn-primary" onclick="introspectToken()">内省</button>
+      <div id="td-introspect-result" class="result-box" style="margin-top:12px;min-height:80px"></div>
+    </div>
+
+    <div class="card">
+      <h3>令牌撤销 (Revoke)</h3>
+      <div class="form-group">
+        <label>Token</label>
+        <textarea id="td-revoke-token" placeholder="粘贴要撤销的 token"></textarea>
+      </div>
+      <div class="form-group">
+        <label>token_type_hint</label>
+        <select id="td-revoke-hint">
+          <option value="">自动检测</option>
+          <option value="access_token">access_token</option>
+          <option value="refresh_token">refresh_token</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>客户端认证</label>
+        <input type="text" id="td-revoke-client" placeholder="client_id:client_secret">
+      </div>
+      <button class="btn btn-danger" onclick="revokeToken()">撤销</button>
+      <div id="td-revoke-result" class="result-box" style="margin-top:12px;min-height:60px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>刷新令牌 (Refresh)</h3>
+    <div class="row">
+      <div class="col">
+        <div class="form-group">
+          <label>Refresh Token</label>
+          <textarea id="td-refresh-token" placeholder="粘贴 refresh_token"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Scope (可选，只能在原 scope 内缩小)</label>
+          <input type="text" id="td-refresh-scope" placeholder="留空使用原 scope">
+        </div>
+        <div class="form-group">
+          <label>客户端认证</label>
+          <input type="text" id="td-refresh-client" placeholder="client_id:client_secret">
+        </div>
+        <button class="btn btn-success" onclick="refreshToken()">刷新换令牌</button>
+      </div>
+      <div class="col">
+        <div id="td-refresh-result" class="result-box" style="min-height:200px">结果将在此显示</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>快速填入</h3>
+    <div class="info-box">从授权码流程或客户端凭证流程获取的令牌会自动填入调试区。也可手动粘贴。</div>
+    <div class="form-group">
+      <label>客户端认证 (用于内省/撤销/刷新)</label>
+      <select id="td-quick-client" onchange="onQuickClientChange()">
+        <option value="">-- 选择客户端自动填入认证信息 --</option>
+        <% testClients.forEach(function(c) { %>
+          <option value="<%= c.client_id %>:<%= c.client_secret || '' %>"><%= c.name %></option>
+        <% }); %>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 发现 & JWKS ========== -->
+<div class="panel" id="panel-discovery">
+  <div class="grid-2">
+    <div class="card">
+      <h3>OpenID Connect Discovery</h3>
+      <div class="endpoint-list">
+        <div class="endpoint-item"><span class="method get">GET</span><span class="url"><%= issuer %>/.well-known/openid-configuration</span></div>
+        <div class="endpoint-item"><span class="method get">GET</span><span class="url"><%= issuer %>/.well-known/jwks.json</span></div>
+      </div>
+      <button class="btn btn-outline btn-sm" style="margin-top:12px" onclick="loadDiscovery()">加载 Discovery 文档</button>
+      <div id="discovery-result" class="result-box" style="margin-top:12px;min-height:120px"></div>
+    </div>
+
+    <div class="card">
+      <h3>JWKS (JSON Web Key Set)</h3>
+      <div class="warn-box">本服务使用 HS256 对称签名。JWKS 中的 oct 密钥仅供测试验证使用，生产环境应使用 RS256 等非对称签名。</div>
+      <button class="btn btn-outline btn-sm" onclick="loadJWKS()">加载 JWKS</button>
+      <div id="jwks-result" class="result-box" style="margin-top:12px;min-height:80px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>签名密钥信息</h3>
+    <div class="info-box">以下密钥用于 JWT 签名验证。ID Token 使用 id_token_secret，Access Token 使用 access_token_secret。</div>
+    <div class="grid-2">
+      <div>
+        <div class="form-group">
+          <label>ID Token Secret (HS256)</label>
+          <input type="text" id="dk-id-secret" value="<%= idTokenSecret %>" readonly style="font-size:11px">
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Access Token Secret (HS256)</label>
+          <input type="text" id="dk-at-secret" value="<%= accessTokenSecret %>" readonly style="font-size:11px">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>最小客户端接入示例 (Node.js)</h3>
+    <div class="code-block"><span class="cmt">// 1. 从 JWKS 获取密钥验证 ID Token</span>
+<span class="kw">const</span> jwt = <span class="fn">require</span>(<span class="str">'jsonwebtoken'</span>);
+
+<span class="kw">const</span> jwksRes = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'<%= issuer %>/.well-known/jwks.json'</span>);
+<span class="kw">const</span> { keys } = <span class="kw">await</span> jwksRes.<span class="fn">json</span>();
+<span class="kw">const</span> idKey = keys.<span class="fn">find</span>(k => k.kid === <span class="str">'id-token-hs256'</span>);
+<span class="kw">const</span> secret = Buffer.<span class="fn">from</span>(idKey.k, <span class="str">'base64'</span>).<span class="fn">toString</span>(<span class="str">'utf-8'</span>);
+
+<span class="kw">const</span> idToken = <span class="str">'<从授权码流程获取的 id_token>'</span>;
+<span class="kw">const</span> decoded = jwt.<span class="fn">verify</span>(idToken, secret, {
+  algorithms: [<span class="str">'HS256'</span>],
+  issuer: <span class="str">'<%= issuer %>'</span>,
+  audience: <span class="str">'<你的 client_id>'</span>,
+});
+console.<span class="fn">log</span>(decoded.sub, decoded.name, decoded.email);
+
+<span class="cmt">// 2. 用授权码换令牌</span>
+<span class="kw">const</span> tokenRes = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'<%= issuer %>/token'</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: {
+    <span class="str">'Content-Type'</span>: <span class="str">'application/x-www-form-urlencoded'</span>,
+    <span class="str">'Authorization'</span>: <span class="str">'Basic '</span> + Buffer.<span class="fn">from</span>(<span class="str">'client_id:client_secret'</span>).<span class="fn">toString</span>(<span class="str">'base64'</span>),
+  },
+  body: <span class="str">'grant_type=authorization_code&code=THE_CODE'</span>
+       + <span class="str">'&redirect_uri=http://localhost:3000/test/callback'</span>,
+});
+<span class="kw">const</span> tokens = <span class="kw">await</span> tokenRes.<span class="fn">json</span>();
+
+<span class="cmt">// 3. 调用 UserInfo</span>
+<span class="kw">const</span> userRes = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'<%= issuer %>/userinfo'</span>, {
+  headers: { <span class="str">'Authorization'</span>: <span class="str">'Bearer '</span> + tokens.access_token },
+});
+<span class="kw">const</span> userInfo = <span class="kw">await</span> userRes.<span class="fn">json</span>();
+
+<span class="cmt">// 4. 刷新令牌 (轮换)</span>
+<span class="kw">const</span> refreshRes = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'<%= issuer %>/token'</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: {
+    <span class="str">'Content-Type'</span>: <span class="str">'application/x-www-form-urlencoded'</span>,
+    <span class="str">'Authorization'</span>: <span class="str">'Basic '</span> + Buffer.<span class="fn">from</span>(<span class="str">'client_id:client_secret'</span>).<span class="fn">toString</span>(<span class="str">'base64'</span>),
+  },
+  body: <span class="str">'grant_type=refresh_token&refresh_token='</span> + tokens.refresh_token,
+});
+<span class="kw">const</span> newTokens = <span class="kw">await</span> refreshRes.<span class="fn">json</span>();</div>
+  </div>
+</div>
+
+<script>
+const ISSUER = '<%= issuer %>';
+const TEST_CLIENTS = <%- JSON.stringify(testClients) %>;
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+document.querySelectorAll('.scope-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const cb = chip.querySelector('input');
+    cb.checked = !cb.checked;
+    chip.classList.toggle('selected', cb.checked);
+  });
+});
+
+let pkceVerifier = null;
+
+function generateCodeVerifier() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+async function generateCodeChallenge(verifier) {
+  const enc = new TextEncoder().encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', enc);
+  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+function onClientChange() {
+  const sel = document.getElementById('ac-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  const clientScope = opt.dataset.scope || '';
+  const clientType = opt.dataset.type || '';
+  document.querySelectorAll('#ac-scopes .scope-chip').forEach(chip => {
+    const cb = chip.querySelector('input');
+    const s = cb.value;
+    const inScope = clientScope.split(/\s+/).includes(s);
+    chip.style.opacity = inScope ? '1' : '0.4';
+    cb.checked = inScope && (s === 'openid' || s === 'profile');
+    chip.classList.toggle('selected', cb.checked);
+  });
+  if (clientType === 'public') {
+    pkceVerifier = generateCodeVerifier();
+    document.getElementById('ac-code-verifier').value = pkceVerifier;
+  } else {
+    pkceVerifier = null;
+    document.getElementById('ac-code-verifier').value = '';
+  }
+}
+
+function onCCClientChange() {
+  const sel = document.getElementById('cc-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  document.getElementById('cc-scope').value = opt.dataset.scope || '';
+}
+
+function onQuickClientChange() {
+  const sel = document.getElementById('td-quick-client');
+  const val = sel.value;
+  if (val) {
+    document.getElementById('td-introspect-client').value = val;
+    document.getElementById('td-revoke-client').value = val;
+    document.getElementById('td-refresh-client').value = val;
+  }
+}
+
+function getSelectedScopes() {
+  const scopes = [];
+  document.querySelectorAll('#ac-scopes .scope-chip input:checked').forEach(cb => {
+    scopes.push(cb.value);
+  });
+  return scopes.join(' ');
+}
+
+async function startAuthCode() {
+  const sel = document.getElementById('ac-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) { alert('请先选择客户端'); return; }
+
+  const clientId = opt.value;
+  const scope = getSelectedScopes();
+  const state = document.getElementById('ac-state').value;
+  const redirectUri = document.getElementById('ac-redirect-uri').value;
+
+  let url = `${ISSUER}/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
+
+  if (pkceVerifier) {
+    const challenge = await generateCodeChallenge(pkceVerifier);
+    url += `&code_challenge=${encodeURIComponent(challenge)}&code_challenge_method=S256`;
+  }
+
+  document.getElementById('step1').classList.add('done');
+  document.getElementById('step2').classList.add('current');
+  document.getElementById('ac-code-info').style.display = 'block';
+  document.getElementById('ac-code-info').textContent = '正在跳转到授权页面，请登录并确认授权...';
+
+  window.open(url, '_blank');
+}
+
+async function exchangeCode() {
+  const code = document.getElementById('ac-code').value.trim();
+  if (!code) { alert('请输入授权码'); return; }
+
+  const sel = document.getElementById('ac-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) { alert('请先选择客户端'); return; }
+
+  const clientId = opt.value;
+  const clientSecret = opt.dataset.secret || '';
+  const redirectUri = document.getElementById('ac-redirect-uri').value;
+  const codeVerifier = document.getElementById('ac-code-verifier').value;
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: redirectUri,
+  });
+  if (codeVerifier) body.set('code_verifier', codeVerifier);
+
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  if (clientSecret) {
+    headers['Authorization'] = 'Basic ' + btoa(clientId + ':' + clientSecret);
+  } else {
+    body.set('client_id', clientId);
+  }
+
+  try {
+    const res = await fetch(`${ISSUER}/token`, { method: 'POST', headers, body });
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById('ac-result-card').style.display = 'block';
+      document.getElementById('ac-token-results').innerHTML =
+        `<div class="result-box" style="color:var(--error)">${JSON.stringify(data, null, 2)}</div>`;
+      return;
+    }
+
+    document.getElementById('step1').classList.add('done');
+    document.getElementById('step2').classList.add('done');
+    document.getElementById('step3').classList.add('current');
+    document.getElementById('ac-result-card').style.display = 'block';
+
+    let html = '';
+    if (data.access_token) {
+      html += buildTokenDisplay('Access Token', data.access_token);
+      fillTokenDebug('introspect', data.access_token, clientId + ':' + clientSecret);
+    }
+    if (data.refresh_token) {
+      html += buildTokenDisplay('Refresh Token', data.refresh_token, 'refresh_token');
+      fillTokenDebug('revoke', data.refresh_token, clientId + ':' + clientSecret);
+      document.getElementById('td-refresh-token').value = data.refresh_token;
+      document.getElementById('td-refresh-client').value = clientId + ':' + clientSecret;
+    }
+    if (data.id_token) {
+      html += buildTokenDisplay('ID Token', data.id_token, 'id_token');
+    }
+    html += `<div class="result-box" style="margin-top:12px">${syntaxHighlight(JSON.stringify(data, null, 2))}</div>`;
+    document.getElementById('ac-token-results').innerHTML = html;
+  } catch (e) {
+    alert('请求失败: ' + e.message);
+  }
+}
+
+function buildTokenDisplay(label, value, hint) {
+  const id = 'tok-' + Math.random().toString(36).substring(2,8);
+  return `<div class="token-display">
+    <div class="token-label">${label} ${hint ? '(' + hint + ')' : ''}</div>
+    <div class="token-value" id="${id}">${value}</div>
+    <button class="copy-btn" onclick="copyToken('${id}')">复制</button>
+  </div>`;
+}
+
+function copyToken(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    navigator.clipboard.writeText(el.textContent).then(() => {
+      const btn = el.parentElement.querySelector('.copy-btn');
+      btn.textContent = '已复制!';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    });
+  }
+}
+
+function fillTokenDebug(type, token, clientAuth) {
+  if (type === 'introspect') {
+    document.getElementById('td-introspect-token').value = token;
+    document.getElementById('td-introspect-client').value = clientAuth;
+  }
+  document.getElementById('td-revoke-token').value = token;
+  document.getElementById('td-revoke-client').value = clientAuth;
+}
+
+async function getClientCredentials() {
+  const sel = document.getElementById('cc-client');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) { alert('请选择客户端'); return; }
+
+  const clientId = opt.value;
+  const clientSecret = opt.dataset.secret || '';
+  const scope = document.getElementById('cc-scope').value.trim();
+
+  const body = new URLSearchParams({ grant_type: 'client_credentials' });
+  if (scope) body.set('scope', scope);
+
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  headers['Authorization'] = 'Basic ' + btoa(clientId + ':' + clientSecret);
+
+  try {
+    const res = await fetch(`${ISSUER}/token`, { method: 'POST', headers, body });
+    const data = await res.json();
+    document.getElementById('cc-result').innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+
+    if (data.access_token) {
+      fillTokenDebug('introspect', data.access_token, clientId + ':' + clientSecret);
+      document.getElementById('td-revoke-token').value = data.access_token;
+      document.getElementById('td-revoke-client').value = clientId + ':' + clientSecret;
+    }
+  } catch (e) {
+    document.getElementById('cc-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+async function introspectToken() {
+  const token = document.getElementById('td-introspect-token').value.trim();
+  if (!token) { alert('请输入 Token'); return; }
+
+  const clientAuth = document.getElementById('td-introspect-client').value.trim();
+  const hint = document.getElementById('td-introspect-hint').value;
+
+  const body = new URLSearchParams({ token });
+  if (hint) body.set('token_type_hint', hint);
+
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  if (clientAuth) {
+    const [id, secret] = clientAuth.split(':');
+    headers['Authorization'] = 'Basic ' + btoa(id + ':' + (secret || ''));
+  }
+
+  try {
+    const res = await fetch(`${ISSUER}/introspect`, { method: 'POST', headers, body });
+    const data = await res.json();
+    const statusBadge = data.active
+      ? '<span class="status-badge status-active">● ACTIVE</span>'
+      : '<span class="status-badge status-inactive">● INACTIVE</span>';
+    document.getElementById('td-introspect-result').innerHTML =
+      statusBadge + '\n' + syntaxHighlight(JSON.stringify(data, null, 2));
+  } catch (e) {
+    document.getElementById('td-introspect-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+async function revokeToken() {
+  const token = document.getElementById('td-revoke-token').value.trim();
+  if (!token) { alert('请输入 Token'); return; }
+
+  const clientAuth = document.getElementById('td-revoke-client').value.trim();
+  const hint = document.getElementById('td-revoke-hint').value;
+
+  const body = new URLSearchParams({ token });
+  if (hint) body.set('token_type_hint', hint);
+
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  if (clientAuth) {
+    const [id, secret] = clientAuth.split(':');
+    headers['Authorization'] = 'Basic ' + btoa(id + ':' + (secret || ''));
+  }
+
+  try {
+    const res = await fetch(`${ISSUER}/revoke`, { method: 'POST', headers, body });
+    if (res.status === 200) {
+      document.getElementById('td-revoke-result').innerHTML =
+        '<span class="status-badge status-inactive">● REVOKED</span>\n令牌已成功撤销。再次内省将显示 active: false';
+    } else {
+      const data = await res.json();
+      document.getElementById('td-revoke-result').innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+    }
+  } catch (e) {
+    document.getElementById('td-revoke-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+async function refreshToken() {
+  const rt = document.getElementById('td-refresh-token').value.trim();
+  if (!rt) { alert('请输入 Refresh Token'); return; }
+
+  const clientAuth = document.getElementById('td-refresh-client').value.trim();
+  const scope = document.getElementById('td-refresh-scope').value.trim();
+
+  const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rt });
+  if (scope) body.set('scope', scope);
+
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  if (clientAuth) {
+    const [id, secret] = clientAuth.split(':');
+    headers['Authorization'] = 'Basic ' + btoa(id + ':' + (secret || ''));
+  }
+
+  try {
+    const res = await fetch(`${ISSUER}/token`, { method: 'POST', headers, body });
+    const data = await res.json();
+    let output = syntaxHighlight(JSON.stringify(data, null, 2));
+    if (data.refresh_token) {
+      output = '<div class="info-box">刷新令牌已轮换！旧 refresh_token 不再有效，请使用新的 refresh_token。</div>' + output;
+      document.getElementById('td-refresh-token').value = data.refresh_token;
+    }
+    if (data.access_token) {
+      document.getElementById('td-introspect-token').value = data.access_token;
+    }
+    document.getElementById('td-refresh-result').innerHTML = output;
+  } catch (e) {
+    document.getElementById('td-refresh-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+async function loadDiscovery() {
+  try {
+    const res = await fetch(`${ISSUER}/.well-known/openid-configuration`);
+    const data = await res.json();
+    document.getElementById('discovery-result').innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+  } catch (e) {
+    document.getElementById('discovery-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+async function loadJWKS() {
+  try {
+    const res = await fetch(`${ISSUER}/.well-known/jwks.json`);
+    const data = await res.json();
+    document.getElementById('jwks-result').innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+  } catch (e) {
+    document.getElementById('jwks-result').textContent = '请求失败: ' + e.message;
+  }
+}
+
+function syntaxHighlight(json) {
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+    let cls = 'color:#fb923c';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'color:#c084fc';
+      } else {
+        cls = 'color:#4ade80';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'color:#60a5fa';
+    } else if (/null/.test(match)) {
+      cls = 'color:#64748b';
+    }
+    return '<span style="' + cls + '">' + match + '</span>';
+  });
+}
+
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('code')) {
+  document.getElementById('ac-code').value = urlParams.get('code');
+}
+</script>
+</body>
+</html>
